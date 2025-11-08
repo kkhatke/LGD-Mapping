@@ -1,0 +1,30 @@
+# Core data processing
+pandas>=1.5.0
+numpy>=1.21.0
+
+# Fuzzy string matching
+rapidfuzz>=2.13.0
+
+# Progress tracking
+tqdm>=4.64.0
+
+# System utilities
+packaging>=21.0
+
+# Optional: Enhanced functionality
+# These packages provide additional features but are not required for core functionality
+psutil>=5.9.0  # Performance monitoring and memory tracking
+pydantic>=1.10.0  # Enhanced data validation
+
+# Testing (development)
+pytest>=7.0.0
+pytest-cov>=4.0.0
+
+# Code quality (development)
+black>=22.0.0
+flake8>=5.0.0
+mypy>=0.991
+
+# Documentation (development)
+sphinx>=5.0.0
+sphinx-rtd-theme>=1.0.0

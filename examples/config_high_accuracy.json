@@ -1,0 +1,27 @@
+{
+  "description": "Configuration template for high accuracy requirements",
+  "input_entities_file": "path/to/entities.csv",
+  "input_codes_file": "path/to/codes.csv",
+  "output_directory": "./output",
+  "fuzzy_thresholds": [98, 95, 92, 90],
+  "district_code_mapping": {},
+  "enable_district_code_mapping": true,
+  "district_fuzzy_threshold": 85,
+  "chunk_size": null,
+  "log_level": "DEBUG",
+  "log_file": null,
+  "notes": [
+    "Multiple graduated thresholds for maximum accuracy",
+    "DEBUG logging provides detailed matching information",
+    "Higher initial threshold (98) ensures high-confidence matches",
+    "Use when data quality is critical and processing time is not a constraint",
+    "Review DEBUG logs to identify data quality issues",
+    "District code mapping enabled by default with 85% fuzzy threshold"
+  ],
+  "recommended_for": [
+    "Critical administrative data",
+    "Legal or compliance requirements",
+    "Data with known quality issues",
+    "Initial data exploration and analysis"
+  ]
+}

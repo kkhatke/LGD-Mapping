@@ -1,0 +1,16 @@
+{
+  "input_entities_file": "path/to/entities.csv",
+  "input_codes_file": "path/to/codes.csv",
+  "output_directory": "path/to/output",
+  "fuzzy_thresholds": [95, 90],
+  "district_code_mapping": {
+    "District Name Variation 1": 101,
+    "District Name Variation 2": 101,
+    "Another District": 102
+  },
+  "enable_district_code_mapping": true,
+  "district_fuzzy_threshold": 85,
+  "chunk_size": null,
+  "log_level": "INFO",
+  "log_file": null
+}

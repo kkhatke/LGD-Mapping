@@ -1,0 +1,11 @@
+# Ignore input and output folders
+input/
+output/
+
+# Optional: other common ignores
+*.log
+__pycache__/
+*.pyc
+.env
+.DS_Store
+node_modules/

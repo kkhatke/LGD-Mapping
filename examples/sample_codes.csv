@@ -1,0 +1,11 @@
+district_code,district,block_code,block,village_code,village,gp_code,gp
+101,Khordha,1001,Bhubaneswar,100101,Patia,10001,Patia GP
+101,Khordha,1001,Bhubaneswar,100102,Chandrasekharpur,10002,Chandrasekharpur GP
+101,Khordha,1002,Jatni,100201,Jatni,10003,Jatni GP
+102,Cuttack,1021,Cuttack Sadar,102101,Bidanasi,10021,Bidanasi GP
+102,Cuttack,1021,Cuttack Sadar,102102,Madhupatna,10022,Madhupatna GP
+103,Puri,1031,Puri Sadar,103101,Puri Town,10031,Puri GP
+103,Puri,1032,Konark,103201,Konark,10032,Konark GP
+104,Ganjam,1041,Berhampur,104101,Berhampur,10041,Berhampur GP
+104,Ganjam,1042,Chhatrapur,104201,Chhatrapur,10042,Chhatrapur GP
+105,Balasore,1051,Balasore Sadar,105101,Balasore Town,10051,Balasore GP

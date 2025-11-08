@@ -1,0 +1,26 @@
+{
+  "description": "Configuration template for large datasets (>50,000 records)",
+  "input_entities_file": "path/to/large_entities.csv",
+  "input_codes_file": "path/to/codes.csv",
+  "output_directory": "./output",
+  "fuzzy_thresholds": [95, 90],
+  "district_code_mapping": {},
+  "enable_district_code_mapping": true,
+  "district_fuzzy_threshold": 85,
+  "chunk_size": 10000,
+  "log_level": "WARNING",
+  "log_file": null,
+  "notes": [
+    "Chunk processing enabled for memory efficiency",
+    "WARNING log level reduces output volume",
+    "Chunk size of 10,000 balances memory and performance",
+    "Consider reducing fuzzy thresholds to [95] for faster processing",
+    "Monitor memory usage in the performance summary",
+    "District code mapping enabled by default with 85% fuzzy threshold"
+  ],
+  "performance_tips": {
+    "for_speed": "Reduce to single threshold [95] and increase chunk_size to 20000",
+    "for_memory": "Reduce chunk_size to 5000",
+    "for_accuracy": "Add more thresholds [98, 95, 90, 85] but expect slower processing"
+  }
+}

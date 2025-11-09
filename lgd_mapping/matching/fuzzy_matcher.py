@@ -335,8 +335,8 @@ class FuzzyMatcher:
                     # Create EntityRecord with hierarchical fields
                     entity = EntityRecord(
                         district=row['district'],
-                        block=row['block'],
-                        village=row['village'],
+                        block=row.get('block'),
+                        village=row.get('village'),
                         state=row.get('state'),
                         gp=row.get('gp'),
                         subdistrict=row.get('subdistrict'),
@@ -344,7 +344,8 @@ class FuzzyMatcher:
                         district_code=row.get('district_code'),
                         block_code=row.get('block_code'),
                         gp_code=row.get('gp_code'),
-                        village_code=row.get('village_code')
+                        village_code=row.get('village_code'),
+                        subdistrict_code=row.get('subdistrict_code')
                     )
                     
                     # Skip invalid entities

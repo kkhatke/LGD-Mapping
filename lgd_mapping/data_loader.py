@@ -105,9 +105,22 @@ class DataLoader:
                     file_path=file_path
                 )
             
-            # Validate required columns
-            required_columns = ['district', 'block', 'village']
+            # Validate required columns - only district is mandatory
+            # The system should work at whatever granularity level exists in the data
+            required_columns = ['district']
             self._validate_columns(df, required_columns, 'entities', file_path)
+            
+            # Validate that at least one lower level exists (block, gp, or village)
+            lower_levels = ['block', 'gp', 'village']
+            has_lower_level = any(col in df.columns for col in lower_levels)
+            if not has_lower_level:
+                raise ValidationError(
+                    f"Entities file must contain at least one lower-level column: {lower_levels}. "
+                    f"Available columns: {sorted(df.columns.tolist())}",
+                    field_name="columns",
+                    invalid_value=df.columns.tolist(),
+                    validation_rules=["Must contain district and at least one of: block, gp, village"]
+                )
             
             # Clean and process data with error handling
             df = self._process_entity_data(df, file_path)
@@ -211,12 +224,28 @@ class DataLoader:
                     file_path=file_path
                 )
             
-            # Validate required columns
-            required_columns = [
-                'district_code', 'district', 'block_code', 'block',
-                'village_code', 'village'
-            ]
+            # Validate required columns - district is mandatory
+            required_columns = ['district_code', 'district']
             self._validate_columns(df, required_columns, 'LGD codes', file_path)
+            
+            # Validate that at least one lower level exists
+            lower_level_pairs = [
+                ('block_code', 'block'),
+                ('gp_code', 'gp'),
+                ('village_code', 'village')
+            ]
+            has_lower_level = any(
+                code_col in df.columns and name_col in df.columns 
+                for code_col, name_col in lower_level_pairs
+            )
+            if not has_lower_level:
+                raise ValidationError(
+                    f"LGD codes file must contain at least one lower-level pair (code + name). "
+                    f"Available columns: {sorted(df.columns.tolist())}",
+                    field_name="columns",
+                    invalid_value=df.columns.tolist(),
+                    validation_rules=["Must contain district_code, district, and at least one of: block_code+block, gp_code+gp, village_code+village"]
+                )
             
             # Clean and process data with error handling
             df = self._process_lgd_data(df, file_path)
@@ -404,6 +433,7 @@ class DataLoader:
         """
         Validate entity data quality and log warnings for issues.
         Includes hierarchical consistency checks.
+        Works with any granularity level present in the data.
         
         Args:
             df: Entity DataFrame to validate
@@ -412,54 +442,83 @@ class DataLoader:
         try:
             quality_issues = []
             
-            # Check for completely empty records
-            empty_records = df[
-                (df['district'].isna() | (df['district'].str.strip() == '')) &
-                (df['block'].isna() | (df['block'].str.strip() == '')) &
-                (df['village'].isna() | (df['village'].str.strip() == ''))
-            ]
+            # Determine which hierarchical columns are present
+            available_columns = []
+            if 'district' in df.columns:
+                available_columns.append('district')
+            if 'block' in df.columns:
+                available_columns.append('block')
+            if 'gp' in df.columns:
+                available_columns.append('gp')
+            if 'village' in df.columns:
+                available_columns.append('village')
             
-            if len(empty_records) > 0:
-                issue = f"Found {len(empty_records)} completely empty entity records"
-                self.logger.warning(issue)
-                quality_issues.append(issue)
+            # Check for completely empty records (all available columns are empty)
+            if len(available_columns) > 0:
+                empty_condition = None
+                for col in available_columns:
+                    col_empty = df[col].isna() | (df[col].str.strip() == '')
+                    if empty_condition is None:
+                        empty_condition = col_empty
+                    else:
+                        empty_condition = empty_condition & col_empty
+                
+                empty_records = df[empty_condition]
+                
+                if len(empty_records) > 0:
+                    issue = f"Found {len(empty_records)} completely empty entity records"
+                    self.logger.warning(issue)
+                    quality_issues.append(issue)
             
-            # Check for records with missing required fields
+            # Check for records with missing district (always required)
             missing_district = df[df['district'].isna() | (df['district'].str.strip() == '')]
-            missing_block = df[df['block'].isna() | (df['block'].str.strip() == '')]
-            missing_village = df[df['village'].isna() | (df['village'].str.strip() == '')]
-            
             if len(missing_district) > 0:
                 issue = f"Found {len(missing_district)} records with missing district"
                 self.logger.warning(issue)
                 quality_issues.append(issue)
-            if len(missing_block) > 0:
-                issue = f"Found {len(missing_block)} records with missing block"
-                self.logger.warning(issue)
-                quality_issues.append(issue)
-            if len(missing_village) > 0:
-                issue = f"Found {len(missing_village)} records with missing village"
-                self.logger.warning(issue)
-                quality_issues.append(issue)
             
-            # Check for duplicates
+            # Check for missing values in other available columns (informational only)
+            if 'block' in df.columns:
+                missing_block = df[df['block'].isna() | (df['block'].str.strip() == '')]
+                if len(missing_block) > 0:
+                    issue = f"Found {len(missing_block)} records with missing block"
+                    self.logger.info(issue)
+            
+            if 'gp' in df.columns:
+                missing_gp = df[df['gp'].isna() | (df['gp'].str.strip() == '')]
+                if len(missing_gp) > 0:
+                    issue = f"Found {len(missing_gp)} records with missing GP"
+                    self.logger.info(issue)
+            
+            if 'village' in df.columns:
+                missing_village = df[df['village'].isna() | (df['village'].str.strip() == '')]
+                if len(missing_village) > 0:
+                    issue = f"Found {len(missing_village)} records with missing village"
+                    self.logger.info(issue)
+            
+            # Check for duplicates using available columns
             try:
-                duplicates = detect_duplicates(df, ['district', 'block', 'village'])
-                if len(duplicates) > 0:
-                    issue = f"Found {len(duplicates)} duplicate entity records"
-                    self.logger.warning(issue)
-                    quality_issues.append(issue)
+                if len(available_columns) >= 2:
+                    duplicates = detect_duplicates(df, available_columns)
+                    if len(duplicates) > 0:
+                        issue = f"Found {len(duplicates)} duplicate entity records"
+                        self.logger.warning(issue)
+                        quality_issues.append(issue)
             except Exception as e:
                 self.logger.warning(f"Error checking for duplicates: {e}")
             
-            # NEW: Validate hierarchical consistency in entity data
+            # Validate hierarchical consistency in entity data
             try:
                 self._validate_entity_hierarchical_consistency(df)
             except Exception as e:
                 self.logger.warning(f"Error validating entity hierarchical consistency: {e}")
             
             # Raise data quality error if critical issues found
-            critical_issues = len(empty_records) + len(missing_district) + len(missing_block) + len(missing_village)
+            # Only count missing district and completely empty records as critical
+            critical_issues = len(missing_district)
+            if 'empty_records' in locals():
+                critical_issues += len(empty_records)
+            
             if critical_issues > len(df) * 0.5:  # More than 50% of records have critical issues
                 raise DataQualityError(
                     f"Critical data quality issues in entity file: {critical_issues}/{len(df)} records affected",
@@ -499,12 +558,15 @@ class DataLoader:
                 if code_col in df.columns:
                     null_codes = df[df[code_col].isna()]
                     if len(null_codes) > 0:
-                        issue = f"Found {len(null_codes)} records with null {code_col}"
-                        self.logger.warning(issue)
-                        quality_issues.append(issue)
-                        # Only count required fields as critical
-                        if code_col in ['district_code', 'block_code', 'village_code']:
+                        # Only district_code is always critical
+                        if code_col == 'district_code':
+                            issue = f"Found {len(null_codes)} records with null {code_col}"
+                            self.logger.warning(issue)
+                            quality_issues.append(issue)
                             critical_issues_count += len(null_codes)
+                        else:
+                            issue = f"Found {len(null_codes)} records with null {code_col}"
+                            self.logger.info(issue)
             
             # Check for records with missing names at all hierarchical levels
             hierarchical_name_columns = ['state', 'district', 'block', 'subdistrict', 'gp', 'village']
@@ -513,22 +575,26 @@ class DataLoader:
                 if name_col in df.columns:
                     missing_names = df[df[name_col].isna() | (df[name_col].str.strip() == '')]
                     if len(missing_names) > 0:
-                        issue = f"Found {len(missing_names)} records with missing {name_col} names"
+                        # Only district is always critical
+                        if name_col == 'district':
+                            issue = f"Found {len(missing_names)} records with missing {name_col} names"
+                            self.logger.warning(issue)
+                            quality_issues.append(issue)
+                            critical_issues_count += len(missing_names)
+                        else:
+                            issue = f"Found {len(missing_names)} records with missing {name_col} names"
+                            self.logger.info(issue)
+            
+            # Check for duplicate codes (only if column exists)
+            if 'village_code' in df.columns:
+                try:
+                    duplicate_village_codes = detect_duplicates(df, ['village_code'])
+                    if len(duplicate_village_codes) > 0:
+                        issue = f"Found {len(duplicate_village_codes)} records with duplicate village codes"
                         self.logger.warning(issue)
                         quality_issues.append(issue)
-                        # Only count required fields as critical
-                        if name_col in ['district', 'block', 'village']:
-                            critical_issues_count += len(missing_names)
-            
-            # Check for duplicate codes
-            try:
-                duplicate_village_codes = detect_duplicates(df, ['village_code'])
-                if len(duplicate_village_codes) > 0:
-                    issue = f"Found {len(duplicate_village_codes)} records with duplicate village codes"
-                    self.logger.warning(issue)
-                    quality_issues.append(issue)
-            except Exception as e:
-                self.logger.warning(f"Error checking for duplicate village codes: {e}")
+                except Exception as e:
+                    self.logger.warning(f"Error checking for duplicate village codes: {e}")
             
             # Check for inconsistent hierarchical data
             try:
@@ -884,8 +950,8 @@ class DataLoader:
             try:
                 record = EntityRecord(
                     district=row['district'],
-                    block=row['block'],
-                    village=row['village'],
+                    block=row.get('block'),
+                    village=row.get('village'),
                     state=row.get('state'),
                     gp=row.get('gp'),
                     subdistrict=row.get('subdistrict'),
@@ -920,12 +986,16 @@ class DataLoader:
                 record = LGDRecord(
                     district_code=row['district_code'],
                     district=row['district'],
-                    block_code=row['block_code'],
-                    block=row['block'],
-                    village_code=row['village_code'],
-                    village=row['village'],
+                    block_code=row.get('block_code'),
+                    block=row.get('block'),
+                    village_code=row.get('village_code'),
+                    village=row.get('village'),
+                    state_code=row.get('state_code'),
+                    state=row.get('state') or row.get('state_name'),
                     gp_code=row.get('gp_code'),
-                    gp=row.get('gp')
+                    gp=row.get('gp'),
+                    subdistrict_code=row.get('subdistrict_code'),
+                    subdistrict=row.get('subdistrict')
                 )
                 
                 # Validate the record

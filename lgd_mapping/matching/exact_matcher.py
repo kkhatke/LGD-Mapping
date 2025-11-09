@@ -178,25 +178,51 @@ class ExactMatcher:
                 invalid_value="empty_dataframe"
             )
         
-        # Check required columns
-        required_entity_columns = ['district', 'block', 'village']
-        missing_entity_cols = set(required_entity_columns) - set(entities.columns)
-        if missing_entity_cols:
+        # Check required columns - district is mandatory, at least one lower level must exist
+        if 'district' not in entities.columns:
             raise ValidationError(
-                f"Missing required columns in entities data: {missing_entity_cols}",
+                "Missing required column 'district' in entities data",
                 field_name="entities_columns",
                 invalid_value=list(entities.columns),
-                validation_rules=[f"Must contain: {required_entity_columns}"]
+                validation_rules=["Must contain: district"]
             )
         
-        required_lgd_columns = ['district_code', 'district', 'block_code', 'block', 'village_code', 'village']
-        missing_lgd_cols = set(required_lgd_columns) - set(lgd_data.columns)
-        if missing_lgd_cols:
+        # Check that at least one lower level exists
+        lower_level_columns = ['block', 'gp', 'village']
+        has_lower_level = any(col in entities.columns for col in lower_level_columns)
+        if not has_lower_level:
             raise ValidationError(
-                f"Missing required columns in LGD data: {missing_lgd_cols}",
+                f"Entities data must contain at least one lower-level column: {lower_level_columns}",
+                field_name="entities_columns",
+                invalid_value=list(entities.columns),
+                validation_rules=["Must contain: district and at least one of: block, gp, village"]
+            )
+        
+        # Check LGD data - district_code and district are mandatory
+        if 'district_code' not in lgd_data.columns or 'district' not in lgd_data.columns:
+            raise ValidationError(
+                "Missing required columns 'district_code' and/or 'district' in LGD data",
                 field_name="lgd_data_columns",
                 invalid_value=list(lgd_data.columns),
-                validation_rules=[f"Must contain: {required_lgd_columns}"]
+                validation_rules=["Must contain: district_code, district"]
+            )
+        
+        # Check that at least one lower level pair exists in LGD data
+        lower_level_pairs = [
+            ('block_code', 'block'),
+            ('gp_code', 'gp'),
+            ('village_code', 'village')
+        ]
+        has_lgd_lower_level = any(
+            code_col in lgd_data.columns and name_col in lgd_data.columns
+            for code_col, name_col in lower_level_pairs
+        )
+        if not has_lgd_lower_level:
+            raise ValidationError(
+                f"LGD data must contain at least one lower-level pair (code + name)",
+                field_name="lgd_data_columns",
+                invalid_value=list(lgd_data.columns),
+                validation_rules=["Must contain: district_code, district, and at least one of: block_code+block, gp_code+gp, village_code+village"]
             )
     
     def _should_use_hierarchical_matching(self, entities: pd.DataFrame, lgd_data: pd.DataFrame) -> bool:
@@ -773,8 +799,8 @@ class ExactMatcher:
             # Create EntityRecord with all hierarchical fields
             entity = EntityRecord(
                 district=row['district'],
-                block=row['block'],
-                village=row['village'],
+                block=row.get('block'),
+                village=row.get('village'),
                 state=row.get('state'),
                 gp=row.get('gp'),
                 subdistrict=row.get('subdistrict'),
@@ -837,8 +863,8 @@ class ExactMatcher:
         try:
             return EntityRecord(
                 district=str(row.get('district', '')),
-                block=str(row.get('block', '')),
-                village=str(row.get('village', '')),
+                block=row.get('block'),
+                village=row.get('village'),
                 state=row.get('state'),
                 gp=row.get('gp'),
                 subdistrict=row.get('subdistrict'),
@@ -853,8 +879,8 @@ class ExactMatcher:
             self.logger.warning(f"Error creating EntityRecord, using defaults: {e}")
             return EntityRecord(
                 district='ERROR',
-                block='ERROR',
-                village='ERROR',
+                block=None,
+                village=None,
                 state=None,
                 district_code=None
             )

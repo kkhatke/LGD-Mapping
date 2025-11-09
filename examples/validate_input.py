@@ -24,12 +24,18 @@ class InputValidator:
     """Validates input CSV files for LGD mapping."""
     
     # Required columns for each file type
-    ENTITIES_REQUIRED_COLUMNS = ['district', 'block', 'village']
-    CODES_REQUIRED_COLUMNS = [
-        'district_code', 'district', 'block_code', 'block',
-        'village_code', 'village'
+    # District is always required, at least one lower level must be present
+    ENTITIES_REQUIRED_COLUMNS = ['district']
+    ENTITIES_LOWER_LEVEL_COLUMNS = ['block', 'gp', 'village']
+    
+    # District code and name are always required, at least one lower level pair must be present
+    CODES_REQUIRED_COLUMNS = ['district_code', 'district']
+    CODES_LOWER_LEVEL_PAIRS = [
+        ('block_code', 'block'),
+        ('gp_code', 'gp'),
+        ('village_code', 'village')
     ]
-    CODES_OPTIONAL_COLUMNS = ['gp_code', 'gp']
+    CODES_OPTIONAL_COLUMNS = ['state_code', 'state', 'subdistrict_code', 'subdistrict']
     
     def __init__(self, verbose=False):
         """Initialize validator."""
@@ -226,11 +232,27 @@ class InputValidator:
         if df is None:
             return False
         
-        if not self.validate_columns(df, self.ENTITIES_REQUIRED_COLUMNS, [], "Entities"):
+        # Validate required columns (district)
+        if not self.validate_columns(df, self.ENTITIES_REQUIRED_COLUMNS, 
+                                     self.ENTITIES_LOWER_LEVEL_COLUMNS, "Entities"):
             return False
         
-        self.validate_null_values(df, self.ENTITIES_REQUIRED_COLUMNS, "Entities")
-        self.validate_duplicates(df, self.ENTITIES_REQUIRED_COLUMNS, "Entities")
+        # Check that at least one lower level column is present
+        actual_columns = set(df.columns)
+        lower_level_present = any(col in actual_columns for col in self.ENTITIES_LOWER_LEVEL_COLUMNS)
+        if not lower_level_present:
+            self.errors.append(
+                f"Entities file must contain at least one lower-level column: {', '.join(self.ENTITIES_LOWER_LEVEL_COLUMNS)}"
+            )
+            self.log(f"No lower-level columns found", 'ERROR')
+            return False
+        
+        # Validate null values and duplicates using available columns
+        all_columns = self.ENTITIES_REQUIRED_COLUMNS + [
+            col for col in self.ENTITIES_LOWER_LEVEL_COLUMNS if col in df.columns
+        ]
+        self.validate_null_values(df, all_columns, "Entities")
+        self.validate_duplicates(df, all_columns, "Entities")
         
         return True
     
@@ -247,18 +269,46 @@ class InputValidator:
         if df is None:
             return False
         
-        if not self.validate_columns(
-            df, self.CODES_REQUIRED_COLUMNS, self.CODES_OPTIONAL_COLUMNS, "Codes"
-        ):
+        # Validate required columns (district_code and district)
+        all_optional = self.CODES_OPTIONAL_COLUMNS.copy()
+        for code_col, name_col in self.CODES_LOWER_LEVEL_PAIRS:
+            all_optional.extend([code_col, name_col])
+        
+        if not self.validate_columns(df, self.CODES_REQUIRED_COLUMNS, all_optional, "Codes"):
+            return False
+        
+        # Check that at least one lower level pair is present
+        actual_columns = set(df.columns)
+        has_lower_level = any(
+            code_col in actual_columns and name_col in actual_columns
+            for code_col, name_col in self.CODES_LOWER_LEVEL_PAIRS
+        )
+        if not has_lower_level:
+            self.errors.append(
+                f"Codes file must contain at least one lower-level pair (code + name): "
+                f"{', '.join([f'{c}+{n}' for c, n in self.CODES_LOWER_LEVEL_PAIRS])}"
+            )
+            self.log(f"No lower-level pairs found", 'ERROR')
             return False
         
         if not self.validate_data_types(df, "Codes"):
             return False
         
-        self.validate_null_values(df, self.CODES_REQUIRED_COLUMNS, "Codes")
-        self.validate_duplicates(
-            df, ['district_code', 'block_code', 'village_code'], "Codes"
-        )
+        # Validate null values using available columns
+        all_required = self.CODES_REQUIRED_COLUMNS.copy()
+        for code_col, name_col in self.CODES_LOWER_LEVEL_PAIRS:
+            if code_col in df.columns:
+                all_required.append(code_col)
+            if name_col in df.columns:
+                all_required.append(name_col)
+        
+        self.validate_null_values(df, all_required, "Codes")
+        
+        # Check duplicates using available code columns
+        dup_check_cols = [col for col in ['district_code', 'block_code', 'gp_code', 'village_code'] 
+                         if col in df.columns]
+        if dup_check_cols:
+            self.validate_duplicates(df, dup_check_cols, "Codes")
         
         return True
     

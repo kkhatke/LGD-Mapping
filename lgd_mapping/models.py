@@ -16,12 +16,12 @@ if TYPE_CHECKING:
 class EntityRecord:
     """Represents a source entity record with flexible hierarchical administrative data."""
     
-    # Core fields (always present)
+    # Core fields - district is always required
     district: str
-    block: str
-    village: str
     
-    # Optional hierarchical fields
+    # Hierarchical fields - at least one lower level should be present
+    block: Optional[str] = None
+    village: Optional[str] = None
     state: Optional[str] = None
     gp: Optional[str] = None
     subdistrict: Optional[str] = None
@@ -93,12 +93,24 @@ class EntityRecord:
         return levels
     
     def is_valid(self) -> bool:
-        """Check if the record has all required fields."""
-        return not any([
-            is_null_or_empty(self.district),
-            is_null_or_empty(self.block),
-            is_null_or_empty(self.village)
-        ])
+        """
+        Check if the record has all required fields.
+        
+        District is always required. At least one lower-level field (block, gp, or village)
+        must be present for the record to be valid.
+        """
+        # District is always required
+        if is_null_or_empty(self.district):
+            return False
+        
+        # At least one lower level must be present
+        has_lower_level = (
+            not is_null_or_empty(self.block) or
+            not is_null_or_empty(self.gp) or
+            not is_null_or_empty(self.village)
+        )
+        
+        return has_lower_level
     
     def get_validation_errors(self) -> List[str]:
         """Get list of validation errors for this record."""
@@ -106,10 +118,16 @@ class EntityRecord:
         
         if is_null_or_empty(self.district):
             errors.append("District is required")
-        if is_null_or_empty(self.block):
-            errors.append("Block is required")
-        if is_null_or_empty(self.village):
-            errors.append("Village is required")
+        
+        # Check if at least one lower level is present
+        has_lower_level = (
+            not is_null_or_empty(self.block) or
+            not is_null_or_empty(self.gp) or
+            not is_null_or_empty(self.village)
+        )
+        
+        if not has_lower_level:
+            errors.append("At least one lower-level field (block, gp, or village) is required")
             
         return errors
     
@@ -174,15 +192,15 @@ class EntityRecord:
 class LGDRecord:
     """Represents an LGD code record with flexible hierarchical administrative data."""
     
-    # Core fields (always present)
+    # Core fields - district is always required
     district_code: int
     district: str
-    block_code: int
-    block: str
-    village_code: int
-    village: str
     
-    # Optional hierarchical fields
+    # Hierarchical fields - at least one lower level should be present
+    block_code: Optional[int] = None
+    block: Optional[str] = None
+    village_code: Optional[int] = None
+    village: Optional[str] = None
     state_code: Optional[int] = None
     state: Optional[str] = None
     gp_code: Optional[int] = None
@@ -326,15 +344,22 @@ class LGDRecord:
         return len(issues) == 0, issues
     
     def is_valid(self) -> bool:
-        """Check if the record has all required fields and valid data types."""
-        return not any([
-            self.district_code is None,
-            self.block_code is None,
-            self.village_code is None,
-            is_null_or_empty(self.district),
-            is_null_or_empty(self.block),
-            is_null_or_empty(self.village)
-        ])
+        """
+        Check if the record has all required fields and valid data types.
+        
+        District code and name are always required. At least one lower-level pair
+        (code + name) must be present for the record to be valid.
+        """
+        # District is always required
+        if self.district_code is None or is_null_or_empty(self.district):
+            return False
+        
+        # At least one lower level pair (code + name) must be present
+        has_block = self.block_code is not None and not is_null_or_empty(self.block)
+        has_gp = self.gp_code is not None and not is_null_or_empty(self.gp)
+        has_village = self.village_code is not None and not is_null_or_empty(self.village)
+        
+        return has_block or has_gp or has_village
     
     def get_validation_errors(self) -> List[str]:
         """Get list of validation errors for this record."""
@@ -342,16 +367,16 @@ class LGDRecord:
         
         if self.district_code is None:
             errors.append("District code is required")
-        if self.block_code is None:
-            errors.append("Block code is required")
-        if self.village_code is None:
-            errors.append("Village code is required")
         if is_null_or_empty(self.district):
             errors.append("District name is required")
-        if is_null_or_empty(self.block):
-            errors.append("Block name is required")
-        if is_null_or_empty(self.village):
-            errors.append("Village name is required")
+        
+        # Check if at least one lower level pair is present
+        has_block = self.block_code is not None and not is_null_or_empty(self.block)
+        has_gp = self.gp_code is not None and not is_null_or_empty(self.gp)
+        has_village = self.village_code is not None and not is_null_or_empty(self.village)
+        
+        if not (has_block or has_gp or has_village):
+            errors.append("At least one lower-level pair (block_code+block, gp_code+gp, or village_code+village) is required")
             
         return errors
 

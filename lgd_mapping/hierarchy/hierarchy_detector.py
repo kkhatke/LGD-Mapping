@@ -162,7 +162,11 @@ class HierarchyDetector:
         
         Returns:
             List of HierarchyLevel objects representing the standard hierarchy
-            from state (top) to village (bottom)
+            from state (top) to village (bottom).
+            
+        Note:
+            Only district is marked as required. At least one lower level
+            (block, gp, or village) must be present for valid hierarchy.
         """
         return [
             HierarchyLevel(
@@ -193,7 +197,7 @@ class HierarchyDetector:
                 name='block',
                 code_column='block_code',
                 name_column='block',
-                is_required=True,
+                is_required=False,  # Changed to False - at least one lower level must be present
                 parent_level='district',
                 fuzzy_threshold=90
             ),
@@ -209,7 +213,7 @@ class HierarchyDetector:
                 name='village',
                 code_column='village_code',
                 name_column='village',
-                is_required=True,
+                is_required=False,  # Changed to False - at least one lower level must be present
                 parent_level='gp',
                 fuzzy_threshold=95
             )
@@ -247,9 +251,8 @@ class HierarchyDetector:
         Validate that detected hierarchy is consistent.
         
         This method checks:
-        1. All required levels are present
+        1. All required levels are present (only district is required)
         2. No gaps in the hierarchy (if a child is present, parent should be too)
-        3. At least the minimum required levels are present
         
         Args:
             detected_levels: List of detected level names
@@ -259,12 +262,9 @@ class HierarchyDetector:
         """
         issues = []
         
-        # Check for required levels based on standard definitions
+        # Check for required levels based on standard definitions (only district)
         for level in self.standard_levels:
             if level.is_required and level.name not in detected_levels:
-                # Special case: block is required, but only if we're not using subdistrict
-                if level.name == 'block' and 'subdistrict' in detected_levels:
-                    continue
                 issues.append(f"Required level '{level.name}' not detected in data")
         
         # Check for hierarchy gaps (if child is present, parent should be too)

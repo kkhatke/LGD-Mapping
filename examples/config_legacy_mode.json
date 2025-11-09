@@ -1,0 +1,43 @@
+{
+  "description": "Example configuration for legacy 3-level mapping mode",
+  "input_entities_file": "input/entities.csv",
+  "input_codes_file": "input/codes.csv",
+  "output_directory": "output",
+  
+  "fuzzy_thresholds": [95, 90],
+  
+  "hierarchical_mapping": {
+    "enable_hierarchical_mapping": false,
+    "enable_state_code_mapping": false,
+    "enable_district_code_mapping": true,
+    "enable_block_code_mapping": false,
+    "enable_gp_code_mapping": false
+  },
+  
+  "level_specific_thresholds": {
+    "district_fuzzy_threshold": 85,
+    "village_fuzzy_threshold": 95
+  },
+  
+  "hierarchy_validation": {
+    "enforce_hierarchy_consistency": false,
+    "allow_partial_hierarchy": true
+  },
+  
+  "performance": {
+    "chunk_size": null
+  },
+  
+  "logging": {
+    "log_level": "INFO",
+    "log_file": null
+  },
+  
+  "notes": [
+    "This configuration disables hierarchical mapping for legacy 3-level mode",
+    "Only district code mapping is enabled (standard behavior)",
+    "Block and GP code mapping are disabled",
+    "Hierarchy consistency validation is disabled",
+    "Use this configuration for backward compatibility with older workflows"
+  ]
+}

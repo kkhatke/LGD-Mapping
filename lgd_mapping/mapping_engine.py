@@ -20,6 +20,10 @@ from .exceptions import MappingProcessError, DataQualityError
 from .utils.data_validator import DataValidator, DataQualityReport
 from .utils.error_handler import ErrorHandler, create_error_context, log_error_details
 from .utils.district_mapper import DistrictCodeMapper
+from .hierarchy.hierarchy_detector import HierarchyDetector
+from .hierarchy.hierarchy_config import HierarchyConfiguration
+from .hierarchy.hierarchical_code_mapper import HierarchicalCodeMapper
+from .hierarchy.hierarchical_uid_generator import HierarchicalUIDGenerator
 
 
 class MappingEngine:
@@ -51,16 +55,24 @@ class MappingEngine:
         )
         self.exact_matcher = ExactMatcher(
             logger=self.logger.logger,
-            error_handler=self.error_handler
+            error_handler=self.error_handler,
+            enable_progressive_filtering=True,
+            enable_batch_processing=True,
+            batch_size=5000
         )
         
         # Initialize data validator
         self.data_validator = DataValidator(self.logger.logger)
         
-        # Initialize fuzzy matchers for each threshold
+        # Initialize fuzzy matchers for each threshold with performance optimizations
         self.fuzzy_matchers = {}
         for threshold in self.config.fuzzy_thresholds:
-            self.fuzzy_matchers[threshold] = FuzzyMatcher(threshold, self.logger.logger)
+            self.fuzzy_matchers[threshold] = FuzzyMatcher(
+                threshold, 
+                self.logger.logger,
+                enable_progressive_filtering=True,
+                enable_batch_processing=True
+            )
         
         # Results storage
         self.all_results: List[MappingResult] = []
@@ -72,6 +84,12 @@ class MappingEngine:
         
         # Validation results storage
         self.validation_results: Optional[Dict[str, Any]] = None
+        
+        # Hierarchical mapping components
+        self.hierarchy_detector: Optional[HierarchyDetector] = None
+        self.hierarchy_config: Optional[HierarchyConfiguration] = None
+        self.hierarchical_code_mapper: Optional[HierarchicalCodeMapper] = None
+        self.hierarchical_uid_generator: Optional[HierarchicalUIDGenerator] = None
     
     def run_complete_mapping(self) -> Tuple[List[MappingResult], ProcessingStats]:
         """
@@ -130,54 +148,205 @@ class MappingEngine:
             self.lgd_df = self.data_loader.load_lgd_codes(self.config.input_codes_file)
             self.logger.info(f"Loaded {len(self.lgd_df)} LGD code records")
             
-            # Perform district code mapping using DistrictCodeMapper (if enabled)
+            # Detect hierarchy structure in the data
+            self.logger.info("Detecting hierarchical structure in data...")
+            self.hierarchy_detector = HierarchyDetector(self.logger.logger)
+            self.hierarchy_config = self.hierarchy_detector.detect_hierarchy(
+                self.entities_df,
+                self.lgd_df
+            )
+            
+            # Log detected hierarchy information
+            self.logger.info(f"Hierarchy detection complete:")
+            self.logger.info(f"  Detected levels: {', '.join(self.hierarchy_config.detected_levels)}")
+            self.logger.info(f"  Hierarchy depth: {self.hierarchy_config.get_hierarchy_depth()}")
+            
+            # Log details for each detected level
+            for level_name in self.hierarchy_config.detected_levels:
+                level = self.hierarchy_config.get_level(level_name)
+                if level:
+                    # Check if code column exists in entities
+                    has_code = level.code_column in self.entities_df.columns
+                    code_status = "present" if has_code else "needs mapping"
+                    self.logger.info(f"  {level_name}: {code_status}")
+            
+            # Update fuzzy matchers with hierarchy configuration
+            self.logger.info("Updating fuzzy matchers with hierarchy configuration")
+            for threshold, matcher in self.fuzzy_matchers.items():
+                matcher.hierarchy_config = self.hierarchy_config
+                self.logger.debug(f"  Updated fuzzy matcher (threshold={threshold}) with hierarchy config")
+            
+            # Perform hierarchical code mapping using HierarchicalCodeMapper
             if self.config.enable_district_code_mapping:
-                self.logger.info("Starting district code mapping")
-                district_mapper = DistrictCodeMapper(self.logger.logger)
+                self.logger.info("Starting hierarchical code mapping for all levels")
                 
-                # Preserve existing district_code values by creating a backup
-                existing_codes = self.entities_df['district_code'].copy() if 'district_code' in self.entities_df.columns else None
-                
-                # Call map_district_codes to enrich entities with district codes
-                self.entities_df, mapping_stats = district_mapper.map_district_codes(
-                    self.entities_df,
-                    self.lgd_df,
-                    fuzzy_threshold=self.config.district_fuzzy_threshold
-                )
-                
-                # Restore existing district codes where they were already present
-                if existing_codes is not None:
-                    # Only overwrite NaN values, preserve existing codes
-                    mask = existing_codes.notna()
-                    self.entities_df.loc[mask, 'district_code'] = existing_codes[mask]
-                    preserved_count = mask.sum()
-                    if preserved_count > 0:
-                        self.logger.info(f"Preserved {preserved_count} existing district codes")
-                
-                # Log mapping statistics
-                self.logger.info(
-                    f"District code mapping completed: {mapping_stats['successfully_mapped']}/{mapping_stats['total_unique_districts']} "
-                    f"districts mapped ({mapping_stats['success_rate']:.1f}% success rate)"
-                )
-                self.logger.info(
-                    f"Mapping breakdown: {mapping_stats['exact_matches']} exact matches, "
-                    f"{mapping_stats['fuzzy_matches']} fuzzy matches"
-                )
-                
-                # Add warning log if success rate is below 50%
-                if mapping_stats['success_rate'] < 50:
-                    self.logger.warning(
-                        f"Low district code mapping success rate: {mapping_stats['success_rate']:.1f}%. "
-                        f"This may impact matching performance."
+                try:
+                    # Initialize hierarchical code mapper with performance optimizations
+                    self.hierarchical_code_mapper = HierarchicalCodeMapper(
+                        self.hierarchy_config,
+                        self.logger.logger,
+                        enable_caching=True,
+                        cache_size_limit_mb=100
                     )
-                    if mapping_stats['unmapped_districts']:
-                        self.logger.warning(
-                            f"Unmapped districts: {', '.join(mapping_stats['unmapped_districts'][:10])}"
-                            + (f" and {len(mapping_stats['unmapped_districts']) - 10} more" 
-                               if len(mapping_stats['unmapped_districts']) > 10 else "")
-                        )
+                    
+                    # Map codes for all hierarchical levels
+                    self.entities_df, all_mapping_stats = self.hierarchical_code_mapper.map_all_levels(
+                        self.entities_df,
+                        self.lgd_df
+                    )
+                    
+                    # Log mapping statistics for each hierarchical level
+                    self.logger.info("Hierarchical code mapping completed:")
+                    for level_name, stats in all_mapping_stats.items():
+                        if stats.get('skipped', False):
+                            self.logger.info(
+                                f"  {level_name.capitalize()}: skipped (all codes already present)"
+                            )
+                        else:
+                            self.logger.info(
+                                f"  {level_name.capitalize()}: {stats['successfully_mapped']}/{stats['total_unique']} "
+                                f"mapped ({stats['success_rate']:.1f}% success rate, "
+                                f"{stats['exact_matches']} exact, {stats['fuzzy_matches']} fuzzy)"
+                            )
+                            
+                            # Add warning if success rate is below 50%
+                            if stats['success_rate'] < 50:
+                                self.logger.warning(
+                                    f"Low {level_name} code mapping success rate: {stats['success_rate']:.1f}%. "
+                                    f"This may impact matching performance."
+                                )
+                                
+                                # Log unmapped names if available
+                                if stats.get('unmapped_names'):
+                                    unmapped = stats['unmapped_names']
+                                    self.logger.warning(
+                                        f"Unmapped {level_name}s: {', '.join(unmapped[:10])}"
+                                        + (f" and {len(unmapped) - 10} more" if len(unmapped) > 10 else "")
+                                    )
+                    
+                    # Calculate overall mapping success
+                    total_levels = len([s for s in all_mapping_stats.values() if not s.get('skipped', False)])
+                    successful_levels = len([
+                        s for s in all_mapping_stats.values() 
+                        if not s.get('skipped', False) and s['success_rate'] >= 50
+                    ])
+                    
+                    self.logger.info(
+                        f"Overall hierarchical mapping: {successful_levels}/{total_levels} levels "
+                        f"achieved ≥50% success rate"
+                    )
+                    
+                except Exception as e:
+                    # Handle mapping failures gracefully
+                    self.logger.error(f"Error during hierarchical code mapping: {str(e)}")
+                    self.logger.warning(
+                        "Continuing with mapping process despite code mapping failure. "
+                        "This may result in lower match rates."
+                    )
+                    
+                    # Log the exception details for debugging
+                    context = create_error_context(
+                        operation="hierarchical_code_mapping",
+                        hierarchy_levels=self.hierarchy_config.detected_levels
+                    )
+                    log_error_details(self.logger.logger, e, context)
             else:
-                self.logger.info("District code mapping is disabled in configuration")
+                self.logger.info("Hierarchical code mapping is disabled in configuration")
+            
+            # Initialize hierarchical UID generator with performance optimizations
+            self.logger.info("Initializing hierarchical UID generator")
+            self.hierarchical_uid_generator = HierarchicalUIDGenerator(
+                self.hierarchy_config,
+                separator="_",
+                enable_batch_processing=True,
+                batch_size=10000
+            )
+            
+            # Generate hierarchical UIDs for entities DataFrame
+            self.logger.info("Generating hierarchical UIDs for entity records")
+            self.entities_df, entity_uid_stats = self.hierarchical_uid_generator.generate_uids_for_dataframe(
+                self.entities_df,
+                uid_column='uid'
+            )
+            
+            # Log entity UID generation statistics
+            self.logger.info("Entity UID generation completed:")
+            self.logger.info(
+                f"  Generated {entity_uid_stats['uids_generated']}/{entity_uid_stats['total_records']} UIDs "
+                f"({entity_uid_stats['success_rate']:.1f}% success rate)"
+            )
+            self.logger.info(
+                f"  Hierarchy depth: {entity_uid_stats['hierarchy_depth']} levels "
+                f"({', '.join(entity_uid_stats['detected_levels'])})"
+            )
+            
+            if entity_uid_stats['generation_failed'] > 0:
+                self.logger.warning(
+                    f"  Failed to generate {entity_uid_stats['generation_failed']} UIDs"
+                )
+            
+            if entity_uid_stats['missing_components'] > 0:
+                self.logger.warning(
+                    f"  {entity_uid_stats['missing_components']} records had missing hierarchical components"
+                )
+            
+            # Generate hierarchical UIDs for LGD DataFrame
+            self.logger.info("Generating hierarchical UIDs for LGD reference records")
+            self.lgd_df, lgd_uid_stats = self.hierarchical_uid_generator.generate_uids_for_dataframe(
+                self.lgd_df,
+                uid_column='uid'
+            )
+            
+            # Log LGD UID generation statistics
+            self.logger.info("LGD UID generation completed:")
+            self.logger.info(
+                f"  Generated {lgd_uid_stats['uids_generated']}/{lgd_uid_stats['total_records']} UIDs "
+                f"({lgd_uid_stats['success_rate']:.1f}% success rate)"
+            )
+            
+            if lgd_uid_stats['generation_failed'] > 0:
+                self.logger.warning(
+                    f"  Failed to generate {lgd_uid_stats['generation_failed']} UIDs for LGD records"
+                )
+            
+            if lgd_uid_stats['missing_components'] > 0:
+                self.logger.warning(
+                    f"  {lgd_uid_stats['missing_components']} LGD records had missing hierarchical components"
+                )
+            
+            # Log overall UID generation summary
+            total_uids = entity_uid_stats['uids_generated'] + lgd_uid_stats['uids_generated']
+            total_records = entity_uid_stats['total_records'] + lgd_uid_stats['total_records']
+            overall_success_rate = (total_uids / total_records * 100) if total_records > 0 else 0.0
+            
+            self.logger.info(
+                f"Overall UID generation: {total_uids}/{total_records} UIDs generated "
+                f"({overall_success_rate:.1f}% success rate)"
+            )
+            
+            # Ensure UIDs are available for matching phase
+            entities_with_uid = self.entities_df['uid'].notna().sum()
+            lgd_with_uid = self.lgd_df['uid'].notna().sum()
+            
+            self.logger.info(
+                f"UIDs available for matching: {entities_with_uid} entities, {lgd_with_uid} LGD records"
+            )
+            
+            # Warn if UID coverage is low
+            entity_uid_coverage = (entities_with_uid / len(self.entities_df) * 100) if len(self.entities_df) > 0 else 0
+            lgd_uid_coverage = (lgd_with_uid / len(self.lgd_df) * 100) if len(self.lgd_df) > 0 else 0
+            
+            if entity_uid_coverage < 90:
+                self.logger.warning(
+                    f"Low entity UID coverage: {entity_uid_coverage:.1f}%. "
+                    f"This may impact exact matching performance."
+                )
+            
+            if lgd_uid_coverage < 90:
+                self.logger.warning(
+                    f"Low LGD UID coverage: {lgd_uid_coverage:.1f}%. "
+                    f"This may impact exact matching performance."
+                )
             
             # Perform comprehensive data validation
             self.logger.info("Starting comprehensive data validation")
@@ -229,9 +398,17 @@ class MappingEngine:
 
     
     def _run_mapping_pipeline(self):
-        """Run the sequential mapping pipeline."""
+        """Run the sequential mapping pipeline with performance optimizations."""
         # Start with all entities
         remaining_entities = self.entities_df.copy()
+        
+        # Update matchers with hierarchy configuration for optimized matching
+        if self.hierarchy_config:
+            self.exact_matcher.hierarchy_config = self.hierarchy_config
+            self.exact_matcher.hierarchical_uid_generator = self.hierarchical_uid_generator
+            
+            for fuzzy_matcher in self.fuzzy_matchers.values():
+                fuzzy_matcher.hierarchy_config = self.hierarchy_config
         
         # Phase 1: Exact matching
         self.logger.log_phase_start("Exact Matching")
@@ -318,7 +495,9 @@ class MappingEngine:
                 
                 # Process this chunk through the mapping pipeline
                 chunk_results = self._process_entity_chunk(chunk_entities)
+                self.logger.info(f"Chunk {chunk_idx + 1} produced {len(chunk_results)} results")
                 self.all_results.extend(chunk_results)
+                self.logger.info(f"Total results so far: {len(self.all_results)}")
                 
                 # Update progress bar
                 pbar.update(len(chunk_entities))
@@ -352,12 +531,16 @@ class MappingEngine:
             remaining_entities = pd.DataFrame()
         
         # Phase 2: Fuzzy matching for this chunk
-        for threshold in self.config.fuzzy_thresholds:
+        last_fuzzy_results = []
+        for threshold_idx, threshold in enumerate(self.config.fuzzy_thresholds):
             if remaining_entities.empty:
+                self.logger.debug(f"Skipping threshold {threshold}% - no remaining entities")
                 break
             
+            self.logger.info(f"Processing {len(remaining_entities)} entities at threshold {threshold}%")
             fuzzy_matcher = self.fuzzy_matchers[threshold]
             fuzzy_results = fuzzy_matcher.match(remaining_entities, self.lgd_df)
+            self.logger.info(f"Fuzzy matching returned {len(fuzzy_results)} results")
             
             fuzzy_matched = [r for r in fuzzy_results if r.is_matched()]
             fuzzy_unmatched_indices = [i for i, r in enumerate(fuzzy_results) if not r.is_matched()]
@@ -368,15 +551,20 @@ class MappingEngine:
                 self.processing_stats.fuzzy_matches[threshold] = 0
             self.processing_stats.fuzzy_matches[threshold] += len(fuzzy_matched)
             
+            # Check if this is the last threshold
+            is_last_threshold = (threshold_idx == len(self.config.fuzzy_thresholds) - 1)
+            
             # Update remaining entities for next threshold
             if fuzzy_unmatched_indices:
                 remaining_entities = remaining_entities.iloc[fuzzy_unmatched_indices].copy()
-                # Add unmatched results from the last threshold
-                if threshold == self.config.fuzzy_thresholds[-1]:
-                    fuzzy_unmatched = [fuzzy_results[i] for i in fuzzy_unmatched_indices]
-                    chunk_results.extend(fuzzy_unmatched)
+                last_fuzzy_results = [fuzzy_results[i] for i in fuzzy_unmatched_indices]
+                
+                # Add unmatched results only from the last threshold
+                if is_last_threshold:
+                    chunk_results.extend(last_fuzzy_results)
             else:
                 remaining_entities = pd.DataFrame()
+                last_fuzzy_results = []
         
         return chunk_results
     

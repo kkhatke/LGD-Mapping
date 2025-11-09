@@ -112,6 +112,57 @@ Configuration for maximum accuracy requirements.
 - Data quality analysis
 - Initial data exploration
 
+### `config_hierarchical.json`
+Configuration for full hierarchical mapping with all administrative levels.
+
+**Features:**
+- Enables hierarchical mapping across all levels (state, district, block, GP, village)
+- Automatic code mapping for district, block, and GP levels
+- Level-specific fuzzy thresholds for fine-tuned matching
+- Hierarchy consistency validation enabled
+- Supports partial hierarchy for backward compatibility
+
+**Use for:**
+- Datasets with GP (Gram Panchayat) information
+- Multi-level administrative data
+- State-level datasets requiring state code mapping
+- Maximum accuracy with hierarchical context
+
+**Example:**
+```bash
+python main.py \
+  --entities entities_with_gp.csv \
+  --codes codes_full_hierarchy.csv \
+  --output ./output \
+  --enable-state-code-mapping \
+  --gp-fuzzy-threshold 90
+```
+
+### `config_legacy_mode.json`
+Configuration for legacy 3-level mapping mode (backward compatibility).
+
+**Features:**
+- Disables hierarchical mapping enhancements
+- Uses only district → block → village mapping
+- District code mapping only (no block/GP code mapping)
+- No hierarchy consistency validation
+- Compatible with older workflows
+
+**Use for:**
+- Maintaining compatibility with existing workflows
+- Simple 3-level datasets without GP information
+- When hierarchical features are not needed
+- Testing backward compatibility
+
+**Example:**
+```bash
+python main.py \
+  --entities entities_3level.csv \
+  --codes codes_3level.csv \
+  --output ./output \
+  --disable-hierarchical-mapping
+```
+
 ### `district_mapping.json`
 Comprehensive district name variations mapping for Odisha districts.
 
@@ -196,6 +247,350 @@ VALIDATION SUMMARY
 Warnings indicate potential data quality issues but won't prevent processing.
 ```
 
+## Hierarchical Mapping Examples
+
+The application supports flexible hierarchical mapping from 3 to 5 administrative levels. This section provides detailed examples for each hierarchy configuration.
+
+### Understanding Hierarchy Levels
+
+| Level | Column Names | Required | Description |
+|-------|--------------|----------|-------------|
+| State | `state`, `state_code` | No | State-level (for multi-state datasets) |
+| District | `district`, `district_code` | Yes | District-level |
+| Block | `block`, `block_code` | Yes | Block/Subdistrict level |
+| GP | `gp`, `gp_code` | No | Gram Panchayat level |
+| Village | `village`, `village_code` | Yes | Village-level |
+
+### Example H1: 3-Level Hierarchy (Basic)
+
+**Use case:** Traditional datasets with district, block, and village only.
+
+**Entities file (entities_3level.csv):**
+```csv
+district,block,village
+Khordha,Bhubaneswar,Patia
+Khordha,Bhubaneswar,Sundarpada
+Cuttack,Cuttack Sadar,Bidanasi
+Puri,Puri Sadar,Penthakata
+```
+
+**LGD codes file (codes_3level.csv):**
+```csv
+district_code,district,block_code,block,village_code,village
+362,Khordha,3621,Bhubaneswar,362101,Patia
+362,Khordha,3621,Bhubaneswar,362102,Sundarpada
+363,Cuttack,3631,Cuttack Sadar,363101,Bidanasi
+364,Puri,3641,Puri Sadar,364101,Penthakata
+```
+
+**Command:**
+```bash
+python main.py \
+  --entities examples/entities_3level.csv \
+  --codes examples/codes_3level.csv \
+  --output ./output_3level
+```
+
+**What happens:**
+- System detects 3-level hierarchy: district → block → village
+- Generates 3-level UIDs: `362_3621_362101`
+- Maps district codes automatically (if missing)
+- Standard matching process
+- Fully backward compatible
+
+**Expected log output:**
+```
+INFO: Detected hierarchy levels: ['district', 'block', 'village']
+INFO: Hierarchy depth: 3
+INFO: District code mapping completed: 4/4 districts mapped (100.0% success rate)
+```
+
+---
+
+### Example H2: 4-Level Hierarchy (with GP)
+
+**Use case:** Datasets with Gram Panchayat information for improved accuracy.
+
+**Entities file (entities_4level.csv):**
+```csv
+district,block,gp,village
+Khordha,Bhubaneswar,Patia GP,Patia
+Khordha,Bhubaneswar,Patia GP,Patia Sasan
+Khordha,Bhubaneswar,Sundarpada GP,Sundarpada
+Cuttack,Cuttack Sadar,Bidanasi GP,Bidanasi
+```
+
+**LGD codes file (codes_4level.csv):**
+```csv
+district_code,district,block_code,block,gp_code,gp,village_code,village
+362,Khordha,3621,Bhubaneswar,36211,Patia GP,362101,Patia
+362,Khordha,3621,Bhubaneswar,36211,Patia GP,362102,Patia Sasan
+362,Khordha,3621,Bhubaneswar,36212,Sundarpada GP,362103,Sundarpada
+363,Cuttack,3631,Cuttack Sadar,36311,Bidanasi GP,363101,Bidanasi
+```
+
+**Command:**
+```bash
+python main.py \
+  --entities examples/entities_4level.csv \
+  --codes examples/codes_4level.csv \
+  --output ./output_4level \
+  --gp-fuzzy-threshold 90
+```
+
+**What happens:**
+- System detects 4-level hierarchy: district → block → GP → village
+- Generates 4-level UIDs: `362_3621_36211_362101`
+- Maps district, block, and GP codes automatically (if missing)
+- GP context improves matching accuracy for villages with same names
+- Hierarchical validation ensures GP belongs to correct block
+
+**Expected log output:**
+```
+INFO: Detected hierarchy levels: ['district', 'block', 'gp', 'village']
+INFO: Hierarchy depth: 4
+INFO: District code mapping completed: 2/2 districts mapped (100.0% success rate)
+INFO: Block code mapping completed: 2/2 blocks mapped (100.0% success rate)
+INFO: GP code mapping completed: 3/3 GPs mapped (100.0% success rate)
+```
+
+**Benefits:**
+- Disambiguates villages with same names in different GPs
+- Higher exact match rates due to GP-level UIDs
+- Better hierarchical validation
+
+---
+
+### Example H3: 5-Level Hierarchy (Full)
+
+**Use case:** Multi-state datasets requiring state-level scoping.
+
+**Entities file (entities_5level.csv):**
+```csv
+state,district,block,gp,village
+Odisha,Khordha,Bhubaneswar,Patia GP,Patia
+Odisha,Cuttack,Cuttack Sadar,Bidanasi GP,Bidanasi
+West Bengal,Kolkata,Kolkata,Park Street GP,Park Street
+West Bengal,Howrah,Howrah,Shibpur GP,Shibpur
+```
+
+**LGD codes file (codes_5level.csv):**
+```csv
+state_code,state,district_code,district,block_code,block,gp_code,gp,village_code,village
+21,Odisha,362,Khordha,3621,Bhubaneswar,36211,Patia GP,362101,Patia
+21,Odisha,363,Cuttack,3631,Cuttack Sadar,36311,Bidanasi GP,363101,Bidanasi
+19,West Bengal,701,Kolkata,7011,Kolkata,70111,Park Street GP,701101,Park Street
+19,West Bengal,702,Howrah,7021,Howrah,70211,Shibpur GP,702101,Shibpur
+```
+
+**Command:**
+```bash
+python main.py \
+  --entities examples/entities_5level.csv \
+  --codes examples/codes_5level.csv \
+  --output ./output_5level \
+  --enable-state-code-mapping \
+  --state-fuzzy-threshold 85 \
+  --gp-fuzzy-threshold 90
+```
+
+**What happens:**
+- System detects 5-level hierarchy: state → district → block → GP → village
+- Generates 5-level UIDs: `21_362_3621_36211_362101`
+- Maps codes at all levels (state, district, block, GP)
+- State-level scoping prevents cross-state matching errors
+- Maximum hierarchical context for highest accuracy
+
+**Expected log output:**
+```
+INFO: Detected hierarchy levels: ['state', 'district', 'block', 'gp', 'village']
+INFO: Hierarchy depth: 5
+INFO: State code mapping completed: 2/2 states mapped (100.0% success rate)
+INFO: District code mapping completed: 4/4 districts mapped (100.0% success rate)
+INFO: Block code mapping completed: 4/4 blocks mapped (100.0% success rate)
+INFO: GP code mapping completed: 4/4 GPs mapped (100.0% success rate)
+```
+
+**Benefits:**
+- Handles multi-state datasets correctly
+- Prevents matching villages from different states
+- Complete administrative hierarchy
+- Ideal for national-level datasets
+
+---
+
+### Example H4: Partial Codes with Automatic Mapping
+
+**Use case:** Data with some codes missing, relying on automatic code mapping.
+
+**Entities file (entities_partial_codes.csv):**
+```csv
+district,district_code,block,gp,village
+Khordha,362,Bhubaneswar,,Patia
+Khordha,362,Bhubaneswar,,Sundarpada
+Cuttack,,Cuttack Sadar,Bidanasi GP,Bidanasi
+```
+
+**Command:**
+```bash
+python main.py \
+  --entities examples/entities_partial_codes.csv \
+  --codes examples/codes_4level.csv \
+  --output ./output_partial \
+  --enable-district-code-mapping \
+  --enable-block-code-mapping \
+  --enable-gp-code-mapping \
+  --block-fuzzy-threshold 88 \
+  --gp-fuzzy-threshold 88
+```
+
+**What happens:**
+- District code for "Cuttack" is mapped automatically
+- Block codes are mapped for all blocks
+- GP codes are mapped for all GPs (including empty GP for first two records)
+- System handles missing data gracefully
+- Generates UIDs after code mapping completes
+
+**Expected log output:**
+```
+INFO: District code mapping completed: 1/1 districts mapped (100.0% success rate)
+INFO: Block code mapping completed: 2/2 blocks mapped (100.0% success rate)
+INFO: GP code mapping completed: 2/2 GPs mapped (100.0% success rate)
+WARNING: Some records have missing GP information
+```
+
+---
+
+### Example H5: Custom Thresholds per Level
+
+**Use case:** Fine-tuning matching sensitivity at each hierarchical level.
+
+**Command:**
+```bash
+python main.py \
+  --entities examples/entities_4level.csv \
+  --codes examples/codes_4level.csv \
+  --output ./output_custom \
+  --state-fuzzy-threshold 80 \
+  --district-fuzzy-threshold 85 \
+  --block-fuzzy-threshold 88 \
+  --gp-fuzzy-threshold 90 \
+  --village-fuzzy-threshold 95
+```
+
+**Rationale:**
+- **State (80)**: State names have more variations (e.g., "Orissa" vs "Odisha")
+- **District (85)**: District names have moderate variations
+- **Block (88)**: Block names are more standardized
+- **GP (90)**: GP names are fairly consistent
+- **Village (95)**: Village names should match closely
+
+**Use when:**
+- You know data quality varies by level
+- Higher levels have more name variations
+- Lower levels are more standardized
+- You want to optimize accuracy vs. recall per level
+
+---
+
+### Example H6: Strict Hierarchical Validation
+
+**Use case:** Data quality auditing with strict validation.
+
+**Command:**
+```bash
+python main.py \
+  --entities examples/entities_4level.csv \
+  --codes examples/codes_4level.csv \
+  --output ./output_strict \
+  --disallow-partial-hierarchy \
+  --enforce-hierarchy-consistency \
+  --log-level DEBUG
+```
+
+**What happens:**
+- Requires all detected levels to be present in every record
+- Validates hierarchical relationships (e.g., GP belongs to correct block)
+- Fails fast on inconsistencies
+- Provides detailed validation errors
+- Useful for identifying data quality issues
+
+**Expected behavior:**
+- Errors if any record is missing a hierarchical level
+- Warnings for hierarchical inconsistencies
+- Detailed DEBUG logs showing validation checks
+- Processing stops if critical validation fails
+
+---
+
+### Example H7: Legacy Mode (Disable Hierarchical Features)
+
+**Use case:** Maintaining compatibility with older workflows or simple 3-level mapping.
+
+**Command:**
+```bash
+python main.py \
+  --entities examples/entities_3level.csv \
+  --codes examples/codes_3level.csv \
+  --output ./output_legacy \
+  --disable-hierarchical-mapping \
+  --disable-block-code-mapping \
+  --disable-gp-code-mapping
+```
+
+**What happens:**
+- Uses only basic 3-level mapping (district → block → village)
+- Skips hierarchical detection
+- No automatic block or GP code mapping
+- Only district code mapping enabled
+- Mimics behavior of older versions
+
+**Use when:**
+- Testing backward compatibility
+- Simple datasets without GP information
+- Hierarchical features not needed
+- Maintaining existing workflows
+
+---
+
+### Comparing Hierarchy Levels
+
+| Feature | 3-Level | 4-Level (GP) | 5-Level (State) |
+|---------|---------|--------------|-----------------|
+| **UID Format** | `D_B_V` | `D_B_G_V` | `S_D_B_G_V` |
+| **UID Example** | `362_3621_362101` | `362_3621_36211_362101` | `21_362_3621_36211_362101` |
+| **Exact Match Rate** | Good | Better | Best |
+| **Disambiguation** | Basic | Good | Excellent |
+| **Multi-State Support** | Limited | Limited | Full |
+| **Processing Time** | Fastest | Fast | Moderate |
+| **Data Requirements** | Minimal | Moderate | Complete |
+| **Use Case** | Simple datasets | Regional data | National data |
+
+### Hierarchy Detection Logs
+
+Understanding what the system detects:
+
+**3-Level Detection:**
+```
+INFO: Detected hierarchy levels: ['district', 'block', 'village']
+INFO: Hierarchy depth: 3
+INFO: Using 3-level UID format: district_code_block_code_village_code
+```
+
+**4-Level Detection:**
+```
+INFO: Detected hierarchy levels: ['district', 'block', 'gp', 'village']
+INFO: Hierarchy depth: 4
+INFO: Using 4-level UID format: district_code_block_code_gp_code_village_code
+```
+
+**5-Level Detection:**
+```
+INFO: Detected hierarchy levels: ['state', 'district', 'block', 'gp', 'village']
+INFO: Hierarchy depth: 5
+INFO: Using 5-level UID format: state_code_district_code_block_code_gp_code_village_code
+```
+
 ## Usage Examples
 
 ### Example 1: Basic Usage with Sample Data
@@ -241,7 +636,42 @@ python main.py \
   --log-level WARNING
 ```
 
-### Example 6: Using Configuration File (Python)
+### Example 6: Hierarchical Mapping with GP Data
+```bash
+python main.py \
+  --entities entities_with_gp.csv \
+  --codes codes_full_hierarchy.csv \
+  --output ./output \
+  --enable-hierarchical-mapping \
+  --gp-fuzzy-threshold 90 \
+  --block-fuzzy-threshold 90
+```
+
+### Example 7: Custom Hierarchical Thresholds
+```bash
+python main.py \
+  --entities entities.csv \
+  --codes codes.csv \
+  --output ./output \
+  --state-fuzzy-threshold 85 \
+  --district-fuzzy-threshold 85 \
+  --block-fuzzy-threshold 88 \
+  --gp-fuzzy-threshold 88 \
+  --village-fuzzy-threshold 92
+```
+
+### Example 8: Legacy 3-Level Mode
+```bash
+python main.py \
+  --entities entities_3level.csv \
+  --codes codes_3level.csv \
+  --output ./output \
+  --disable-hierarchical-mapping \
+  --disable-block-code-mapping \
+  --disable-gp-code-mapping
+```
+
+### Example 9: Using Configuration File (Python)
 ```python
 import json
 from lgd_mapping.config import MappingConfig

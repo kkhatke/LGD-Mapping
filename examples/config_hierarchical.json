@@ -1,0 +1,47 @@
+{
+  "description": "Example configuration for hierarchical mapping with all levels",
+  "input_entities_file": "input/entities.csv",
+  "input_codes_file": "input/codes.csv",
+  "output_directory": "output",
+  
+  "fuzzy_thresholds": [95, 90],
+  
+  "hierarchical_mapping": {
+    "enable_hierarchical_mapping": true,
+    "enable_state_code_mapping": false,
+    "enable_district_code_mapping": true,
+    "enable_block_code_mapping": true,
+    "enable_gp_code_mapping": true
+  },
+  
+  "level_specific_thresholds": {
+    "state_fuzzy_threshold": 85,
+    "district_fuzzy_threshold": 85,
+    "block_fuzzy_threshold": 90,
+    "gp_fuzzy_threshold": 90,
+    "village_fuzzy_threshold": 95
+  },
+  
+  "hierarchy_validation": {
+    "enforce_hierarchy_consistency": true,
+    "allow_partial_hierarchy": true
+  },
+  
+  "performance": {
+    "chunk_size": null
+  },
+  
+  "logging": {
+    "log_level": "INFO",
+    "log_file": null
+  },
+  
+  "notes": [
+    "This configuration enables full hierarchical mapping support",
+    "State code mapping is disabled by default as most datasets don't need it",
+    "District, block, and GP code mapping are enabled for automatic enrichment",
+    "Level-specific fuzzy thresholds allow fine-tuning matching at each level",
+    "Hierarchy consistency validation ensures data quality",
+    "Partial hierarchy is allowed for backward compatibility with 3-level datasets"
+  ]
+}

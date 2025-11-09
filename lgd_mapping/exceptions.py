@@ -283,6 +283,125 @@ class RecoveryError(LGDMappingError):
         self.recovery_attempts = recovery_attempts
 
 
+class HierarchyDetectionError(MappingProcessError):
+    """Exception raised when hierarchy detection fails."""
+    
+    def __init__(self, message: str, detected_levels: Optional[List[str]] = None,
+                 missing_required_levels: Optional[List[str]] = None,
+                 inconsistencies: Optional[List[str]] = None,
+                 original_error: Optional[Exception] = None):
+        """
+        Initialize hierarchy detection error.
+        
+        Args:
+            message: Human-readable error message
+            detected_levels: List of hierarchical levels that were detected
+            missing_required_levels: List of required levels that are missing
+            inconsistencies: List of hierarchical inconsistencies found
+            original_error: Original exception that caused this error
+        """
+        context = {
+            'detected_levels': detected_levels or [],
+            'missing_required_levels': missing_required_levels or [],
+            'inconsistencies': inconsistencies or [],
+            'original_error': str(original_error) if original_error else None,
+            'original_error_type': type(original_error).__name__ if original_error else None
+        }
+        super().__init__(
+            message=message,
+            strategy='hierarchy_detection',
+            original_error=original_error
+        )
+        self.context.update(context)
+        self.detected_levels = detected_levels or []
+        self.missing_required_levels = missing_required_levels or []
+        self.inconsistencies = inconsistencies or []
+
+
+class HierarchyValidationError(ValidationError):
+    """Exception raised when hierarchical data validation fails."""
+    
+    def __init__(self, message: str, hierarchy_level: Optional[str] = None,
+                 parent_level: Optional[str] = None, child_level: Optional[str] = None,
+                 invalid_relationships: Optional[List[Dict[str, Any]]] = None,
+                 validation_type: str = 'consistency'):
+        """
+        Initialize hierarchy validation error.
+        
+        Args:
+            message: Human-readable error message
+            hierarchy_level: The hierarchical level where validation failed
+            parent_level: Parent level in the hierarchy
+            child_level: Child level in the hierarchy
+            invalid_relationships: List of invalid parent-child relationships
+            validation_type: Type of validation that failed (consistency, completeness, structure)
+        """
+        context = {
+            'hierarchy_level': hierarchy_level,
+            'parent_level': parent_level,
+            'child_level': child_level,
+            'invalid_relationships': invalid_relationships or [],
+            'validation_type': validation_type
+        }
+        super().__init__(
+            message=message,
+            field_name=hierarchy_level,
+            validation_rules=[f'hierarchy_{validation_type}']
+        )
+        self.context.update(context)
+        self.hierarchy_level = hierarchy_level
+        self.parent_level = parent_level
+        self.child_level = child_level
+        self.invalid_relationships = invalid_relationships or []
+        self.validation_type = validation_type
+
+
+class HierarchicalMappingError(MappingProcessError):
+    """Exception raised when hierarchical code mapping fails."""
+    
+    def __init__(self, message: str, hierarchy_level: Optional[str] = None,
+                 failed_mappings: Optional[int] = None, total_mappings: Optional[int] = None,
+                 parent_context: Optional[Dict[str, Any]] = None,
+                 fallback_available: bool = False,
+                 original_error: Optional[Exception] = None):
+        """
+        Initialize hierarchical mapping error.
+        
+        Args:
+            message: Human-readable error message
+            hierarchy_level: The hierarchical level where mapping failed
+            failed_mappings: Number of mappings that failed
+            total_mappings: Total number of mappings attempted
+            parent_context: Context information about parent level
+            fallback_available: Whether a fallback strategy is available
+            original_error: Original exception that caused this error
+        """
+        context = {
+            'hierarchy_level': hierarchy_level,
+            'failed_mappings': failed_mappings,
+            'total_mappings': total_mappings,
+            'success_rate': ((total_mappings - failed_mappings) / total_mappings * 100) 
+                           if total_mappings and failed_mappings is not None else None,
+            'parent_context': parent_context or {},
+            'fallback_available': fallback_available,
+            'original_error': str(original_error) if original_error else None,
+            'original_error_type': type(original_error).__name__ if original_error else None
+        }
+        super().__init__(
+            message=message,
+            strategy=f'hierarchical_mapping_{hierarchy_level}' if hierarchy_level else 'hierarchical_mapping',
+            entity_count=total_mappings,
+            processed_count=(total_mappings - failed_mappings) if total_mappings and failed_mappings is not None else None,
+            original_error=original_error
+        )
+        self.context.update(context)
+        self.hierarchy_level = hierarchy_level
+        self.failed_mappings = failed_mappings
+        self.total_mappings = total_mappings
+        self.parent_context = parent_context or {}
+        self.fallback_available = fallback_available
+
+
 # Utility functions for exception handling
 
 def create_validation_error(field_name: str, value: Any, rules: List[str]) -> ValidationError:
@@ -395,11 +514,135 @@ def get_error_severity(error: Exception) -> str:
         return 'critical'
     elif isinstance(error, (DataLoadError, FileAccessError)):
         return 'high'
-    elif isinstance(error, (MappingProcessError, OutputGenerationError)):
+    elif isinstance(error, HierarchyDetectionError):
+        # Hierarchy detection failures are high severity as they block processing
+        return 'high'
+    elif isinstance(error, (MappingProcessError, OutputGenerationError, HierarchicalMappingError)):
         return 'medium'
-    elif isinstance(error, (ValidationError, MatchingError)):
+    elif isinstance(error, (ValidationError, MatchingError, HierarchyValidationError)):
         return 'low'
     elif isinstance(error, DataQualityError):
         return error.severity
     else:
         return 'medium'
+
+
+def create_hierarchy_detection_error(
+    detected_levels: List[str],
+    missing_required: List[str],
+    inconsistencies: Optional[List[str]] = None
+) -> HierarchyDetectionError:
+    """
+    Create a standardized hierarchy detection error.
+    
+    Args:
+        detected_levels: List of hierarchical levels that were detected
+        missing_required: List of required levels that are missing
+        inconsistencies: Optional list of hierarchical inconsistencies
+        
+    Returns:
+        HierarchyDetectionError instance
+    """
+    if missing_required:
+        message = (
+            f"Hierarchy detection failed: missing required levels {', '.join(missing_required)}. "
+            f"Detected levels: {', '.join(detected_levels) if detected_levels else 'none'}"
+        )
+    elif inconsistencies:
+        message = (
+            f"Hierarchy detection found inconsistencies: {'; '.join(inconsistencies)}. "
+            f"Detected levels: {', '.join(detected_levels)}"
+        )
+    else:
+        message = f"Hierarchy detection failed with detected levels: {', '.join(detected_levels) if detected_levels else 'none'}"
+    
+    return HierarchyDetectionError(
+        message=message,
+        detected_levels=detected_levels,
+        missing_required_levels=missing_required,
+        inconsistencies=inconsistencies or []
+    )
+
+
+def create_hierarchy_validation_error(
+    hierarchy_level: str,
+    parent_level: Optional[str] = None,
+    child_level: Optional[str] = None,
+    invalid_count: int = 0,
+    validation_type: str = 'consistency'
+) -> HierarchyValidationError:
+    """
+    Create a standardized hierarchy validation error.
+    
+    Args:
+        hierarchy_level: The hierarchical level where validation failed
+        parent_level: Parent level in the hierarchy
+        child_level: Child level in the hierarchy
+        invalid_count: Number of invalid relationships found
+        validation_type: Type of validation that failed
+        
+    Returns:
+        HierarchyValidationError instance
+    """
+    if parent_level and child_level:
+        message = (
+            f"Hierarchical {validation_type} validation failed at level '{hierarchy_level}': "
+            f"found {invalid_count} invalid relationships between {parent_level} and {child_level}"
+        )
+    else:
+        message = (
+            f"Hierarchical {validation_type} validation failed at level '{hierarchy_level}': "
+            f"found {invalid_count} validation issues"
+        )
+    
+    return HierarchyValidationError(
+        message=message,
+        hierarchy_level=hierarchy_level,
+        parent_level=parent_level,
+        child_level=child_level,
+        validation_type=validation_type
+    )
+
+
+def create_hierarchical_mapping_error(
+    hierarchy_level: str,
+    failed_count: int,
+    total_count: int,
+    parent_context: Optional[Dict[str, Any]] = None,
+    fallback_available: bool = False
+) -> HierarchicalMappingError:
+    """
+    Create a standardized hierarchical mapping error.
+    
+    Args:
+        hierarchy_level: The hierarchical level where mapping failed
+        failed_count: Number of mappings that failed
+        total_count: Total number of mappings attempted
+        parent_context: Context information about parent level
+        fallback_available: Whether a fallback strategy is available
+        
+    Returns:
+        HierarchicalMappingError instance
+    """
+    success_rate = ((total_count - failed_count) / total_count * 100) if total_count > 0 else 0
+    
+    message = (
+        f"Hierarchical code mapping failed at level '{hierarchy_level}': "
+        f"{failed_count}/{total_count} mappings failed ({success_rate:.1f}% success rate)"
+    )
+    
+    if parent_context:
+        parent_info = ', '.join([f"{k}={v}" for k, v in parent_context.items()])
+        message += f". Parent context: {parent_info}"
+    
+    if fallback_available:
+        message += ". Fallback strategy available"
+    
+    return HierarchicalMappingError(
+        message=message,
+        hierarchy_level=hierarchy_level,
+        failed_mappings=failed_count,
+        total_mappings=total_count,
+        parent_context=parent_context,
+        fallback_available=fallback_available
+    )

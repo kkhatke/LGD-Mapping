@@ -79,6 +79,93 @@ def parse_arguments():
         help="Clean up output files older than this many days (default: 30)"
     )
     
+    # Hierarchical mapping configuration
+    parser.add_argument(
+        "--enable-hierarchical-mapping",
+        action="store_true",
+        default=True,
+        help="Enable full hierarchical mapping (default: enabled)"
+    )
+    
+    parser.add_argument(
+        "--disable-hierarchical-mapping",
+        action="store_true",
+        help="Disable hierarchical mapping (use legacy 3-level mapping)"
+    )
+    
+    parser.add_argument(
+        "--enable-state-code-mapping",
+        action="store_true",
+        help="Enable automatic state code mapping from state names"
+    )
+    
+    parser.add_argument(
+        "--disable-district-code-mapping",
+        action="store_true",
+        help="Disable automatic district code mapping"
+    )
+    
+    parser.add_argument(
+        "--disable-block-code-mapping",
+        action="store_true",
+        help="Disable automatic block code mapping"
+    )
+    
+    parser.add_argument(
+        "--disable-gp-code-mapping",
+        action="store_true",
+        help="Disable automatic GP (Gram Panchayat) code mapping"
+    )
+    
+    # Level-specific fuzzy thresholds
+    parser.add_argument(
+        "--state-fuzzy-threshold",
+        type=int,
+        default=85,
+        help="Fuzzy matching threshold for state level (0-100, default: 85)"
+    )
+    
+    parser.add_argument(
+        "--district-fuzzy-threshold",
+        type=int,
+        default=85,
+        help="Fuzzy matching threshold for district level (0-100, default: 85)"
+    )
+    
+    parser.add_argument(
+        "--block-fuzzy-threshold",
+        type=int,
+        default=90,
+        help="Fuzzy matching threshold for block level (0-100, default: 90)"
+    )
+    
+    parser.add_argument(
+        "--gp-fuzzy-threshold",
+        type=int,
+        default=90,
+        help="Fuzzy matching threshold for GP level (0-100, default: 90)"
+    )
+    
+    parser.add_argument(
+        "--village-fuzzy-threshold",
+        type=int,
+        default=95,
+        help="Fuzzy matching threshold for village level (0-100, default: 95)"
+    )
+    
+    # Hierarchy validation options
+    parser.add_argument(
+        "--disable-hierarchy-consistency",
+        action="store_true",
+        help="Disable hierarchical consistency validation"
+    )
+    
+    parser.add_argument(
+        "--disallow-partial-hierarchy",
+        action="store_true",
+        help="Require all hierarchical levels to be present (strict mode)"
+    )
+    
     return parser.parse_args()
 
 
@@ -270,6 +357,14 @@ def main():
         # Load district mapping if provided
         district_mapping = load_district_mapping(args.district_mapping) if args.district_mapping else {}
         
+        # Determine hierarchical mapping settings from arguments
+        enable_hierarchical = args.enable_hierarchical_mapping and not args.disable_hierarchical_mapping
+        enable_district_mapping = not args.disable_district_code_mapping
+        enable_block_mapping = not args.disable_block_code_mapping
+        enable_gp_mapping = not args.disable_gp_code_mapping
+        enforce_consistency = not args.disable_hierarchy_consistency
+        allow_partial = not args.disallow_partial_hierarchy
+        
         # Create configuration
         config = MappingConfig(
             input_entities_file=args.entities,
@@ -278,7 +373,22 @@ def main():
             fuzzy_thresholds=args.thresholds,
             district_code_mapping=district_mapping,
             log_level=args.log_level,
-            chunk_size=args.chunk_size
+            chunk_size=args.chunk_size,
+            # Hierarchical mapping configuration
+            enable_hierarchical_mapping=enable_hierarchical,
+            enable_state_code_mapping=args.enable_state_code_mapping,
+            enable_district_code_mapping=enable_district_mapping,
+            enable_block_code_mapping=enable_block_mapping,
+            enable_gp_code_mapping=enable_gp_mapping,
+            # Level-specific fuzzy thresholds
+            state_fuzzy_threshold=args.state_fuzzy_threshold,
+            district_fuzzy_threshold=args.district_fuzzy_threshold,
+            block_fuzzy_threshold=args.block_fuzzy_threshold,
+            gp_fuzzy_threshold=args.gp_fuzzy_threshold,
+            village_fuzzy_threshold=args.village_fuzzy_threshold,
+            # Hierarchy validation
+            enforce_hierarchy_consistency=enforce_consistency,
+            allow_partial_hierarchy=allow_partial
         )
         
         # Set up logging

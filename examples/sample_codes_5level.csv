@@ -1,0 +1,9 @@
+state_code,state,district_code,district,block_code,block,gp_code,gp,village_code,village
+21,Odisha,362,Khordha,3621,Bhubaneswar,36211,Patia GP,362101,Patia
+21,Odisha,362,Khordha,3621,Bhubaneswar,36212,Sundarpada GP,362102,Sundarpada
+21,Odisha,363,Cuttack,3631,Cuttack Sadar,36311,Bidanasi GP,363101,Bidanasi
+21,Odisha,364,Puri,3641,Puri Sadar,36411,Penthakata GP,364101,Penthakata
+19,West Bengal,701,Kolkata,7011,Kolkata,70111,Park Street GP,701101,Park Street
+19,West Bengal,702,Howrah,7021,Howrah,70211,Shibpur GP,702101,Shibpur
+33,Tamil Nadu,603,Chennai,6031,Chennai,60311,Mylapore GP,603101,Mylapore
+33,Tamil Nadu,604,Coimbatore,6041,Coimbatore,60411,RS Puram GP,604101,RS Puram

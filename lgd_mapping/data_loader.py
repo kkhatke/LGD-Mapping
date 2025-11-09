@@ -309,6 +309,7 @@ class DataLoader:
     def _process_entity_data(self, df: pd.DataFrame, file_path: str) -> pd.DataFrame:
         """
         Process and clean entity data with error handling.
+        Handles all hierarchical fields (state, district, block, subdistrict, gp, village).
         
         Args:
             df: Raw entity DataFrame
@@ -318,21 +319,27 @@ class DataLoader:
             Processed DataFrame
         """
         try:
-            # Clean string columns
-            string_columns = ['district', 'block', 'village']
-            df = clean_dataframe_strings(df, string_columns)
+            # Define all possible hierarchical columns
+            hierarchical_name_columns = ['state', 'district', 'block', 'subdistrict', 'gp', 'village']
+            hierarchical_code_columns = ['state_code', 'district_code', 'block_code', 'subdistrict_code', 'gp_code', 'village_code']
             
-            # Add district_code column if not present
-            if 'district_code' not in df.columns:
-                df['district_code'] = None
-            else:
-                # Convert district_code to int if present
-                try:
-                    numeric_columns = {'district_code': 'int'}
-                    df = convert_numeric_columns(df, numeric_columns)
-                except Exception as e:
-                    self.logger.warning(f"Error converting district_code to numeric: {e}")
-                    # Continue with district_code as object type
+            # Clean string columns that are present
+            string_columns = [col for col in hierarchical_name_columns if col in df.columns]
+            if string_columns:
+                df = clean_dataframe_strings(df, string_columns)
+            
+            # Process code columns - add if not present, convert to int if present
+            for code_col in hierarchical_code_columns:
+                if code_col not in df.columns:
+                    df[code_col] = None
+                else:
+                    # Convert code to int if present
+                    try:
+                        numeric_columns = {code_col: 'int'}
+                        df = convert_numeric_columns(df, numeric_columns)
+                    except Exception as e:
+                        self.logger.warning(f"Error converting {code_col} to numeric: {e}")
+                        # Continue with code as object type
             
             return df
             
@@ -346,6 +353,7 @@ class DataLoader:
     def _process_lgd_data(self, df: pd.DataFrame, file_path: str) -> pd.DataFrame:
         """
         Process and clean LGD codes data with error handling.
+        Handles all hierarchical fields (state, district, block, subdistrict, gp, village).
         
         Args:
             df: Raw LGD codes DataFrame
@@ -355,32 +363,33 @@ class DataLoader:
             Processed DataFrame
         """
         try:
-            # Clean string columns
-            string_columns = ['district', 'block', 'village']
-            if 'gp' in df.columns:
-                string_columns.append('gp')
-            df = clean_dataframe_strings(df, string_columns)
+            # Define all possible hierarchical columns
+            hierarchical_name_columns = ['state', 'district', 'block', 'subdistrict', 'gp', 'village']
+            hierarchical_code_columns = ['state_code', 'district_code', 'block_code', 'subdistrict_code', 'gp_code', 'village_code']
             
-            # Convert numeric columns
-            numeric_columns = {
-                'district_code': 'int',
-                'block_code': 'int',
-                'village_code': 'int'
-            }
-            if 'gp_code' in df.columns:
-                numeric_columns['gp_code'] = 'int'
+            # Clean string columns that are present
+            string_columns = [col for col in hierarchical_name_columns if col in df.columns]
+            if string_columns:
+                df = clean_dataframe_strings(df, string_columns)
             
-            try:
-                df = convert_numeric_columns(df, numeric_columns)
-            except Exception as e:
-                self.logger.warning(f"Error converting numeric columns: {e}")
-                # Try to convert individual columns
-                for col, dtype in numeric_columns.items():
-                    if col in df.columns:
-                        try:
-                            df[col] = pd.to_numeric(df[col], errors='coerce')
-                        except Exception as col_error:
-                            self.logger.warning(f"Error converting column {col}: {col_error}")
+            # Convert numeric columns that are present
+            numeric_columns = {}
+            for code_col in hierarchical_code_columns:
+                if code_col in df.columns:
+                    numeric_columns[code_col] = 'int'
+            
+            if numeric_columns:
+                try:
+                    df = convert_numeric_columns(df, numeric_columns)
+                except Exception as e:
+                    self.logger.warning(f"Error converting numeric columns: {e}")
+                    # Try to convert individual columns
+                    for col, dtype in numeric_columns.items():
+                        if col in df.columns:
+                            try:
+                                df[col] = pd.to_numeric(df[col], errors='coerce')
+                            except Exception as col_error:
+                                self.logger.warning(f"Error converting column {col}: {col_error}")
             
             return df
             
@@ -394,6 +403,7 @@ class DataLoader:
     def _validate_entity_data(self, df: pd.DataFrame, file_path: str) -> None:
         """
         Validate entity data quality and log warnings for issues.
+        Includes hierarchical consistency checks.
         
         Args:
             df: Entity DataFrame to validate
@@ -442,6 +452,12 @@ class DataLoader:
             except Exception as e:
                 self.logger.warning(f"Error checking for duplicates: {e}")
             
+            # NEW: Validate hierarchical consistency in entity data
+            try:
+                self._validate_entity_hierarchical_consistency(df)
+            except Exception as e:
+                self.logger.warning(f"Error validating entity hierarchical consistency: {e}")
+            
             # Raise data quality error if critical issues found
             critical_issues = len(empty_records) + len(missing_district) + len(missing_block) + len(missing_village)
             if critical_issues > len(df) * 0.5:  # More than 50% of records have critical issues
@@ -466,6 +482,7 @@ class DataLoader:
     def _validate_lgd_data(self, df: pd.DataFrame, file_path: str) -> None:
         """
         Validate LGD codes data quality and log warnings for issues.
+        Includes validation for all hierarchical levels.
         
         Args:
             df: LGD codes DataFrame to validate
@@ -473,42 +490,35 @@ class DataLoader:
         """
         try:
             quality_issues = []
+            critical_issues_count = 0
             
-            # Check for records with null codes
-            null_district_codes = df[df['district_code'].isna()]
-            null_block_codes = df[df['block_code'].isna()]
-            null_village_codes = df[df['village_code'].isna()]
+            # Check for records with null codes at all hierarchical levels
+            hierarchical_code_columns = ['state_code', 'district_code', 'block_code', 'subdistrict_code', 'gp_code', 'village_code']
             
-            if len(null_district_codes) > 0:
-                issue = f"Found {len(null_district_codes)} records with null district codes"
-                self.logger.warning(issue)
-                quality_issues.append(issue)
-            if len(null_block_codes) > 0:
-                issue = f"Found {len(null_block_codes)} records with null block codes"
-                self.logger.warning(issue)
-                quality_issues.append(issue)
-            if len(null_village_codes) > 0:
-                issue = f"Found {len(null_village_codes)} records with null village codes"
-                self.logger.warning(issue)
-                quality_issues.append(issue)
+            for code_col in hierarchical_code_columns:
+                if code_col in df.columns:
+                    null_codes = df[df[code_col].isna()]
+                    if len(null_codes) > 0:
+                        issue = f"Found {len(null_codes)} records with null {code_col}"
+                        self.logger.warning(issue)
+                        quality_issues.append(issue)
+                        # Only count required fields as critical
+                        if code_col in ['district_code', 'block_code', 'village_code']:
+                            critical_issues_count += len(null_codes)
             
-            # Check for records with missing names
-            missing_district_names = df[df['district'].isna() | (df['district'].str.strip() == '')]
-            missing_block_names = df[df['block'].isna() | (df['block'].str.strip() == '')]
-            missing_village_names = df[df['village'].isna() | (df['village'].str.strip() == '')]
+            # Check for records with missing names at all hierarchical levels
+            hierarchical_name_columns = ['state', 'district', 'block', 'subdistrict', 'gp', 'village']
             
-            if len(missing_district_names) > 0:
-                issue = f"Found {len(missing_district_names)} records with missing district names"
-                self.logger.warning(issue)
-                quality_issues.append(issue)
-            if len(missing_block_names) > 0:
-                issue = f"Found {len(missing_block_names)} records with missing block names"
-                self.logger.warning(issue)
-                quality_issues.append(issue)
-            if len(missing_village_names) > 0:
-                issue = f"Found {len(missing_village_names)} records with missing village names"
-                self.logger.warning(issue)
-                quality_issues.append(issue)
+            for name_col in hierarchical_name_columns:
+                if name_col in df.columns:
+                    missing_names = df[df[name_col].isna() | (df[name_col].str.strip() == '')]
+                    if len(missing_names) > 0:
+                        issue = f"Found {len(missing_names)} records with missing {name_col} names"
+                        self.logger.warning(issue)
+                        quality_issues.append(issue)
+                        # Only count required fields as critical
+                        if name_col in ['district', 'block', 'village']:
+                            critical_issues_count += len(missing_names)
             
             # Check for duplicate codes
             try:
@@ -526,16 +536,18 @@ class DataLoader:
             except Exception as e:
                 self.logger.warning(f"Error validating hierarchical consistency: {e}")
             
-            # Raise data quality error if critical issues found
-            critical_issues = (len(null_district_codes) + len(null_block_codes) + 
-                             len(null_village_codes) + len(missing_district_names) + 
-                             len(missing_block_names) + len(missing_village_names))
+            # NEW: Check hierarchical parent-child relationships
+            try:
+                self._validate_hierarchical_relationships(df)
+            except Exception as e:
+                self.logger.warning(f"Error validating hierarchical relationships: {e}")
             
-            if critical_issues > len(df) * 0.3:  # More than 30% of records have critical issues
+            # Raise data quality error if critical issues found
+            if critical_issues_count > len(df) * 0.3:  # More than 30% of records have critical issues
                 raise DataQualityError(
-                    f"Critical data quality issues in LGD codes file: {critical_issues}/{len(df)} records affected",
+                    f"Critical data quality issues in LGD codes file: {critical_issues_count}/{len(df)} records affected",
                     quality_issue="high_missing_reference_data_rate",
-                    affected_records=critical_issues,
+                    affected_records=critical_issues_count,
                     severity="high",
                     recommendations=[
                         "Review LGD reference data completeness",
@@ -550,42 +562,308 @@ class DataLoader:
             self.logger.warning(f"Error during LGD data validation: {e}")
             # Don't fail the entire process for validation errors
     
+    def _validate_hierarchical_relationships(self, df: pd.DataFrame) -> None:
+        """
+        Validate parent-child relationships in hierarchical data.
+        Ensures that child entities belong to their specified parents.
+        
+        Args:
+            df: LGD DataFrame to validate
+        """
+        try:
+            # Validate district belongs to state (if state present)
+            if 'state_code' in df.columns and 'district_code' in df.columns:
+                # Check if each district_code appears under only one state_code
+                district_state_mapping = df.groupby('district_code')['state_code'].nunique()
+                multi_state_districts = district_state_mapping[district_state_mapping > 1]
+                
+                if len(multi_state_districts) > 0:
+                    self.logger.warning(
+                        f"Found {len(multi_state_districts)} district codes appearing under multiple states"
+                    )
+                    for district_code in list(multi_state_districts.index)[:5]:
+                        states = df[df['district_code'] == district_code]['state_code'].unique()
+                        self.logger.debug(f"District code {district_code} appears in states: {list(states)}")
+            
+            # Validate block belongs to district
+            if 'district_code' in df.columns and 'block_code' in df.columns:
+                # Check if each block_code appears under only one district_code
+                block_district_mapping = df.groupby('block_code')['district_code'].nunique()
+                multi_district_blocks = block_district_mapping[block_district_mapping > 1]
+                
+                if len(multi_district_blocks) > 0:
+                    self.logger.warning(
+                        f"Found {len(multi_district_blocks)} block codes appearing under multiple districts"
+                    )
+                    for block_code in list(multi_district_blocks.index)[:5]:
+                        districts = df[df['block_code'] == block_code]['district_code'].unique()
+                        self.logger.debug(f"Block code {block_code} appears in districts: {list(districts)}")
+            
+            # Validate subdistrict belongs to district (if present)
+            if 'district_code' in df.columns and 'subdistrict_code' in df.columns:
+                subdistrict_district_mapping = df.groupby('subdistrict_code')['district_code'].nunique()
+                multi_district_subdistricts = subdistrict_district_mapping[subdistrict_district_mapping > 1]
+                
+                if len(multi_district_subdistricts) > 0:
+                    self.logger.warning(
+                        f"Found {len(multi_district_subdistricts)} subdistrict codes appearing under multiple districts"
+                    )
+                    for subdistrict_code in list(multi_district_subdistricts.index)[:5]:
+                        districts = df[df['subdistrict_code'] == subdistrict_code]['district_code'].unique()
+                        self.logger.debug(f"Subdistrict code {subdistrict_code} appears in districts: {list(districts)}")
+            
+            # Validate GP belongs to block (if present)
+            if 'block_code' in df.columns and 'gp_code' in df.columns:
+                gp_block_mapping = df.groupby('gp_code')['block_code'].nunique()
+                multi_block_gps = gp_block_mapping[gp_block_mapping > 1]
+                
+                if len(multi_block_gps) > 0:
+                    self.logger.warning(
+                        f"Found {len(multi_block_gps)} GP codes appearing under multiple blocks"
+                    )
+                    for gp_code in list(multi_block_gps.index)[:5]:
+                        blocks = df[df['gp_code'] == gp_code]['block_code'].unique()
+                        self.logger.debug(f"GP code {gp_code} appears in blocks: {list(blocks)}")
+            
+            # Validate village belongs to GP or block
+            if 'village_code' in df.columns:
+                if 'gp_code' in df.columns:
+                    # Village should belong to only one GP
+                    village_gp_mapping = df.groupby('village_code')['gp_code'].nunique()
+                    multi_gp_villages = village_gp_mapping[village_gp_mapping > 1]
+                    
+                    if len(multi_gp_villages) > 0:
+                        self.logger.warning(
+                            f"Found {len(multi_gp_villages)} village codes appearing under multiple GPs"
+                        )
+                        for village_code in list(multi_gp_villages.index)[:5]:
+                            gps = df[df['village_code'] == village_code]['gp_code'].unique()
+                            self.logger.debug(f"Village code {village_code} appears in GPs: {list(gps)}")
+                elif 'block_code' in df.columns:
+                    # Village should belong to only one block
+                    village_block_mapping = df.groupby('village_code')['block_code'].nunique()
+                    multi_block_villages = village_block_mapping[village_block_mapping > 1]
+                    
+                    if len(multi_block_villages) > 0:
+                        self.logger.warning(
+                            f"Found {len(multi_block_villages)} village codes appearing under multiple blocks"
+                        )
+                        for village_code in list(multi_block_villages.index)[:5]:
+                            blocks = df[df['village_code'] == village_code]['block_code'].unique()
+                            self.logger.debug(f"Village code {village_code} appears in blocks: {list(blocks)}")
+                    
+        except Exception as e:
+            self.logger.warning(f"Error validating hierarchical relationships: {e}")
+            # Don't fail validation for this check
+    
+    def _validate_entity_hierarchical_consistency(self, df: pd.DataFrame) -> None:
+        """
+        Validate hierarchical consistency in entity data.
+        Checks that hierarchical relationships are consistent.
+        
+        Args:
+            df: Entity DataFrame to validate
+        """
+        try:
+            # Check if same state has consistent state_code (if both present)
+            if 'state' in df.columns and 'state_code' in df.columns:
+                state_with_codes = df[df['state_code'].notna() & df['state'].notna()]
+                if len(state_with_codes) > 0:
+                    state_inconsistencies = state_with_codes.groupby('state')['state_code'].nunique()
+                    inconsistent_states = state_inconsistencies[state_inconsistencies > 1]
+                    
+                    if len(inconsistent_states) > 0:
+                        self.logger.warning(
+                            f"Found {len(inconsistent_states)} state names with multiple state codes"
+                        )
+                        for state_name in list(inconsistent_states.index)[:5]:
+                            codes = state_with_codes[state_with_codes['state'] == state_name]['state_code'].unique()
+                            self.logger.debug(f"State '{state_name}' has codes: {list(codes)}")
+            
+            # Check if same district has consistent district_code (if both present)
+            if 'district' in df.columns and 'district_code' in df.columns:
+                district_with_codes = df[df['district_code'].notna() & df['district'].notna()]
+                if len(district_with_codes) > 0:
+                    # Check within state if state is present
+                    if 'state' in df.columns:
+                        district_groups = district_with_codes.groupby(['state', 'district'])['district_code'].nunique()
+                        inconsistent_districts = district_groups[district_groups > 1]
+                        
+                        if len(inconsistent_districts) > 0:
+                            self.logger.warning(
+                                f"Found {len(inconsistent_districts)} district names with multiple district codes within states"
+                            )
+                            for (state, district) in list(inconsistent_districts.index)[:5]:
+                                codes = district_with_codes[(district_with_codes['state'] == state) & 
+                                                           (district_with_codes['district'] == district)]['district_code'].unique()
+                                self.logger.debug(f"District '{district}' in state '{state}' has codes: {list(codes)}")
+                    else:
+                        district_inconsistencies = district_with_codes.groupby('district')['district_code'].nunique()
+                        inconsistent_districts = district_inconsistencies[district_inconsistencies > 1]
+                        
+                        if len(inconsistent_districts) > 0:
+                            self.logger.warning(
+                                f"Found {len(inconsistent_districts)} district names with multiple district codes"
+                            )
+                            for district_name in list(inconsistent_districts.index)[:5]:
+                                codes = district_with_codes[district_with_codes['district'] == district_name]['district_code'].unique()
+                                self.logger.debug(f"District '{district_name}' has codes: {list(codes)}")
+            
+            # Check if same block has consistent block_code (if both present)
+            if 'block' in df.columns and 'block_code' in df.columns:
+                block_with_codes = df[df['block_code'].notna() & df['block'].notna() & df['district'].notna()]
+                if len(block_with_codes) > 0:
+                    block_groups = block_with_codes.groupby(['district', 'block'])['block_code'].nunique()
+                    inconsistent_blocks = block_groups[block_groups > 1]
+                    
+                    if len(inconsistent_blocks) > 0:
+                        self.logger.warning(
+                            f"Found {len(inconsistent_blocks)} block names with multiple block codes within districts"
+                        )
+                        for (district, block) in list(inconsistent_blocks.index)[:5]:
+                            codes = block_with_codes[(block_with_codes['district'] == district) & 
+                                                    (block_with_codes['block'] == block)]['block_code'].unique()
+                            self.logger.debug(f"Block '{block}' in district '{district}' has codes: {list(codes)}")
+            
+            # Check if same GP has consistent gp_code (if both present)
+            if 'gp' in df.columns and 'gp_code' in df.columns:
+                gp_with_codes = df[df['gp_code'].notna() & df['gp'].notna() & df['block'].notna()]
+                if len(gp_with_codes) > 0:
+                    gp_groups = gp_with_codes.groupby(['block', 'gp'])['gp_code'].nunique()
+                    inconsistent_gps = gp_groups[gp_groups > 1]
+                    
+                    if len(inconsistent_gps) > 0:
+                        self.logger.warning(
+                            f"Found {len(inconsistent_gps)} GP names with multiple GP codes within blocks"
+                        )
+                        for (block, gp) in list(inconsistent_gps.index)[:5]:
+                            codes = gp_with_codes[(gp_with_codes['block'] == block) & 
+                                                 (gp_with_codes['gp'] == gp)]['gp_code'].unique()
+                            self.logger.debug(f"GP '{gp}' in block '{block}' has codes: {list(codes)}")
+                    
+        except Exception as e:
+            self.logger.warning(f"Error validating entity hierarchical consistency: {e}")
+            # Don't fail validation for this check
+    
     def _validate_hierarchical_consistency(self, df: pd.DataFrame) -> None:
         """
         Validate hierarchical consistency in LGD data.
+        Checks all hierarchical levels (state, district, block, subdistrict, gp, village).
         
         Args:
             df: LGD codes DataFrame to validate
         """
         try:
-            # Check if same district code has different district names
-            district_inconsistencies = df.groupby('district_code')['district'].nunique()
-            inconsistent_districts = district_inconsistencies[district_inconsistencies > 1]
-            
-            if len(inconsistent_districts) > 0:
-                self.logger.warning(
-                    f"Found {len(inconsistent_districts)} district codes with inconsistent names"
-                )
+            # Check state level consistency (if present)
+            if 'state_code' in df.columns and 'state' in df.columns:
+                state_inconsistencies = df.groupby('state_code')['state'].nunique()
+                inconsistent_states = state_inconsistencies[state_inconsistencies > 1]
                 
-                # Log details for debugging
-                for district_code in inconsistent_districts.index[:5]:  # Show first 5
-                    names = df[df['district_code'] == district_code]['district'].unique()
-                    self.logger.debug(f"District code {district_code} has names: {list(names)}")
+                if len(inconsistent_states) > 0:
+                    self.logger.warning(
+                        f"Found {len(inconsistent_states)} state codes with inconsistent names"
+                    )
+                    for state_code in inconsistent_states.index[:5]:
+                        names = df[df['state_code'] == state_code]['state'].unique()
+                        self.logger.debug(f"State code {state_code} has names: {list(names)}")
             
-            # Check if same block code has different block names within same district
-            block_groups = df.groupby(['district_code', 'block_code'])['block'].nunique()
-            inconsistent_blocks = block_groups[block_groups > 1]
+            # Check district level consistency
+            if 'district_code' in df.columns and 'district' in df.columns:
+                # Check within state if state is present
+                if 'state_code' in df.columns:
+                    district_groups = df.groupby(['state_code', 'district_code'])['district'].nunique()
+                    inconsistent_districts = district_groups[district_groups > 1]
+                    
+                    if len(inconsistent_districts) > 0:
+                        self.logger.warning(
+                            f"Found {len(inconsistent_districts)} district codes with inconsistent names within states"
+                        )
+                        for (state_code, district_code) in list(inconsistent_districts.index)[:5]:
+                            names = df[(df['state_code'] == state_code) & 
+                                      (df['district_code'] == district_code)]['district'].unique()
+                            self.logger.debug(f"District code {district_code} in state {state_code} has names: {list(names)}")
+                else:
+                    district_inconsistencies = df.groupby('district_code')['district'].nunique()
+                    inconsistent_districts = district_inconsistencies[district_inconsistencies > 1]
+                    
+                    if len(inconsistent_districts) > 0:
+                        self.logger.warning(
+                            f"Found {len(inconsistent_districts)} district codes with inconsistent names"
+                        )
+                        for district_code in inconsistent_districts.index[:5]:
+                            names = df[df['district_code'] == district_code]['district'].unique()
+                            self.logger.debug(f"District code {district_code} has names: {list(names)}")
             
-            if len(inconsistent_blocks) > 0:
-                self.logger.warning(
-                    f"Found {len(inconsistent_blocks)} block codes with inconsistent names"
-                )
+            # Check block level consistency
+            if 'block_code' in df.columns and 'block' in df.columns:
+                block_groups = df.groupby(['district_code', 'block_code'])['block'].nunique()
+                inconsistent_blocks = block_groups[block_groups > 1]
                 
-                # Log details for debugging
-                for (district_code, block_code) in list(inconsistent_blocks.index)[:5]:  # Show first 5
-                    names = df[(df['district_code'] == district_code) & 
-                              (df['block_code'] == block_code)]['block'].unique()
-                    self.logger.debug(f"Block code {block_code} in district {district_code} has names: {list(names)}")
+                if len(inconsistent_blocks) > 0:
+                    self.logger.warning(
+                        f"Found {len(inconsistent_blocks)} block codes with inconsistent names"
+                    )
+                    for (district_code, block_code) in list(inconsistent_blocks.index)[:5]:
+                        names = df[(df['district_code'] == district_code) & 
+                                  (df['block_code'] == block_code)]['block'].unique()
+                        self.logger.debug(f"Block code {block_code} in district {district_code} has names: {list(names)}")
+            
+            # Check subdistrict level consistency (if present)
+            if 'subdistrict_code' in df.columns and 'subdistrict' in df.columns:
+                subdistrict_groups = df.groupby(['district_code', 'subdistrict_code'])['subdistrict'].nunique()
+                inconsistent_subdistricts = subdistrict_groups[subdistrict_groups > 1]
+                
+                if len(inconsistent_subdistricts) > 0:
+                    self.logger.warning(
+                        f"Found {len(inconsistent_subdistricts)} subdistrict codes with inconsistent names"
+                    )
+                    for (district_code, subdistrict_code) in list(inconsistent_subdistricts.index)[:5]:
+                        names = df[(df['district_code'] == district_code) & 
+                                  (df['subdistrict_code'] == subdistrict_code)]['subdistrict'].unique()
+                        self.logger.debug(f"Subdistrict code {subdistrict_code} in district {district_code} has names: {list(names)}")
+            
+            # Check GP level consistency (if present)
+            if 'gp_code' in df.columns and 'gp' in df.columns:
+                # GP should be unique within block
+                gp_groups = df.groupby(['block_code', 'gp_code'])['gp'].nunique()
+                inconsistent_gps = gp_groups[gp_groups > 1]
+                
+                if len(inconsistent_gps) > 0:
+                    self.logger.warning(
+                        f"Found {len(inconsistent_gps)} GP codes with inconsistent names"
+                    )
+                    for (block_code, gp_code) in list(inconsistent_gps.index)[:5]:
+                        names = df[(df['block_code'] == block_code) & 
+                                  (df['gp_code'] == gp_code)]['gp'].unique()
+                        self.logger.debug(f"GP code {gp_code} in block {block_code} has names: {list(names)}")
+            
+            # Check village level consistency
+            if 'village_code' in df.columns and 'village' in df.columns:
+                # Village should be unique within GP (if GP present) or block
+                if 'gp_code' in df.columns:
+                    village_groups = df.groupby(['gp_code', 'village_code'])['village'].nunique()
+                    inconsistent_villages = village_groups[village_groups > 1]
+                    
+                    if len(inconsistent_villages) > 0:
+                        self.logger.warning(
+                            f"Found {len(inconsistent_villages)} village codes with inconsistent names within GPs"
+                        )
+                        for (gp_code, village_code) in list(inconsistent_villages.index)[:5]:
+                            names = df[(df['gp_code'] == gp_code) & 
+                                      (df['village_code'] == village_code)]['village'].unique()
+                            self.logger.debug(f"Village code {village_code} in GP {gp_code} has names: {list(names)}")
+                else:
+                    village_groups = df.groupby(['block_code', 'village_code'])['village'].nunique()
+                    inconsistent_villages = village_groups[village_groups > 1]
+                    
+                    if len(inconsistent_villages) > 0:
+                        self.logger.warning(
+                            f"Found {len(inconsistent_villages)} village codes with inconsistent names within blocks"
+                        )
+                        for (block_code, village_code) in list(inconsistent_villages.index)[:5]:
+                            names = df[(df['block_code'] == block_code) & 
+                                      (df['village_code'] == village_code)]['village'].unique()
+                            self.logger.debug(f"Village code {village_code} in block {block_code} has names: {list(names)}")
                     
         except Exception as e:
             self.logger.warning(f"Error validating hierarchical consistency: {e}")
@@ -608,7 +886,15 @@ class DataLoader:
                     district=row['district'],
                     block=row['block'],
                     village=row['village'],
-                    district_code=row.get('district_code')
+                    state=row.get('state'),
+                    gp=row.get('gp'),
+                    subdistrict=row.get('subdistrict'),
+                    state_code=row.get('state_code'),
+                    district_code=row.get('district_code'),
+                    block_code=row.get('block_code'),
+                    gp_code=row.get('gp_code'),
+                    village_code=row.get('village_code'),
+                    subdistrict_code=row.get('subdistrict_code')
                 )
                 records.append(record)
             except Exception as e:

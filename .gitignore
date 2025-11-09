@@ -1,6 +1,8 @@
-# Ignore input and output folders
+# Ignore input folder
 input/
-output/
+
+# Ignore output folder at root level only (not lgd_mapping/output)
+/output/
 
 # Optional: other common ignores
 *.log

@@ -32,6 +32,22 @@ class MappingConfig:
     enable_district_code_mapping: bool = True
     district_fuzzy_threshold: int = 85
     
+    # Hierarchical mapping configuration
+    enable_hierarchical_mapping: bool = True
+    enable_state_code_mapping: bool = False  # Usually not needed
+    enable_block_code_mapping: bool = True
+    enable_gp_code_mapping: bool = True
+    
+    # Level-specific fuzzy thresholds
+    state_fuzzy_threshold: int = 85
+    block_fuzzy_threshold: int = 90
+    gp_fuzzy_threshold: int = 90
+    village_fuzzy_threshold: int = 95
+    
+    # Hierarchy validation
+    enforce_hierarchy_consistency: bool = True
+    allow_partial_hierarchy: bool = True
+    
     # Performance optimization settings
     chunk_size: Optional[int] = None
     
@@ -65,6 +81,21 @@ class MappingConfig:
         # Ensure thresholds are in descending order for optimal processing
         if self.fuzzy_thresholds != sorted(self.fuzzy_thresholds, reverse=True):
             self.fuzzy_thresholds = sorted(self.fuzzy_thresholds, reverse=True)
+        
+        # Validate hierarchical fuzzy thresholds
+        hierarchical_thresholds = [
+            ('state', self.state_fuzzy_threshold),
+            ('district', self.district_fuzzy_threshold),
+            ('block', self.block_fuzzy_threshold),
+            ('gp', self.gp_fuzzy_threshold),
+            ('village', self.village_fuzzy_threshold)
+        ]
+        
+        for level_name, threshold in hierarchical_thresholds:
+            if not 0 <= threshold <= 100:
+                raise ValueError(
+                    f"{level_name.capitalize()} fuzzy threshold must be between 0 and 100: {threshold}"
+                )
     
     def _ensure_output_directory(self):
         """Create output directory if it doesn't exist."""
@@ -85,6 +116,16 @@ class MappingConfig:
             'district_code_mapping': self.district_code_mapping,
             'enable_district_code_mapping': self.enable_district_code_mapping,
             'district_fuzzy_threshold': self.district_fuzzy_threshold,
+            'enable_hierarchical_mapping': self.enable_hierarchical_mapping,
+            'enable_state_code_mapping': self.enable_state_code_mapping,
+            'enable_block_code_mapping': self.enable_block_code_mapping,
+            'enable_gp_code_mapping': self.enable_gp_code_mapping,
+            'state_fuzzy_threshold': self.state_fuzzy_threshold,
+            'block_fuzzy_threshold': self.block_fuzzy_threshold,
+            'gp_fuzzy_threshold': self.gp_fuzzy_threshold,
+            'village_fuzzy_threshold': self.village_fuzzy_threshold,
+            'enforce_hierarchy_consistency': self.enforce_hierarchy_consistency,
+            'allow_partial_hierarchy': self.allow_partial_hierarchy,
             'chunk_size': self.chunk_size,
             'log_level': self.log_level,
             'log_file': self.log_file

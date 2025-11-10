@@ -10,17 +10,15 @@ A robust, modular Python application for mapping village, block, and district da
 - [Quick Start](#quick-start)
 - [Usage](#usage)
   - [Command Line Interface](#command-line-interface)
+  - [Input File Formats](#input-file-formats)
   - [Configuration Options](#configuration-options)
   - [Hierarchical Mapping](#hierarchical-mapping)
-  - [District Code Mapping](#district-code-mapping)
-  - [Input File Formats](#input-file-formats)
   - [Output Files](#output-files)
 - [Common Workflows](#common-workflows)
 - [Performance Tuning](#performance-tuning)
 - [Troubleshooting](#troubleshooting)
 - [FAQ](#faq)
 - [Project Structure](#project-structure)
-- [Development](#development)
 - [License](#license)
 
 ## Overview
@@ -62,20 +60,13 @@ The LGD Mapping Application automates the process of mapping administrative enti
 
 1. Clone or download the repository:
 ```bash
-git clone <repository-url>
+git clone https://github.com/kkhatke/LGD-Mapping.git
 cd lgd-mapping
 ```
 
 2. Install dependencies:
 ```bash
 pip install -r requirements.txt
-```
-
-### Development Installation
-
-For development with editable installation:
-```bash
-pip install -e .
 ```
 
 ### Verify Installation
@@ -98,25 +89,6 @@ python main.py --entities entities.csv --codes codes.csv --output ./output
 ```
 
 3. Check the output directory for results
-
-### Using Sample Data
-
-Try the application with sample data:
-
-**3-level hierarchy (basic):**
-```bash
-python main.py --entities examples/sample_entities.csv --codes examples/sample_codes.csv --output ./test_output
-```
-
-**4-level hierarchy (with GP):**
-```bash
-python main.py --entities examples/sample_entities_4level.csv --codes examples/sample_codes_4level.csv --output ./test_output_4level
-```
-
-**5-level hierarchy (with state):**
-```bash
-python main.py --entities examples/sample_entities_5level.csv --codes examples/sample_codes_5level.csv --output ./test_output_5level --enable-state-code-mapping
-```
 
 ## Usage
 
@@ -154,6 +126,185 @@ python main.py [OPTIONS]
 - `--cleanup-days INT`: Clean up old output files (default: 30)
   - Example: `--cleanup-days 7`
   - Set to 0 to disable cleanup
+ 
+### Input File Formats
+
+#### Column Naming Conventions
+
+The application uses **strict, case-sensitive column names**. Use these exact names in your CSV files:
+
+| Level | Name Column | Code Column | Required | Notes |
+|-------|-------------|-------------|----------|-------|
+| State | `state` | `state_code` | No | For multi-state datasets |
+| District | `district` | `district_code` | Yes | Core level, always required |
+| Subdistrict | `subdistrict` | `subdistrict_code` | No | Alternative to block |
+| Block | `block` | `block_code` | Yes | Core level, always required |
+| GP | `gp` | `gp_code` | No | Gram Panchayat level |
+| Village | `village` | `village_code` | Yes | Core level, always required |
+
+**Important Notes:**
+- Column names are **case-sensitive**: use lowercase (`state`, not `State` or `STATE`)
+- Use exact names: `gp` not `gram_panchayat`, `block` not `block_name`
+- Code columns are optional - the system can map them automatically
+- Name columns are required for the levels you want to include
+
+**Special Case for LGD Reference File:**
+- LGD files may use `state_name` instead of `state` (automatically handled)
+- All other columns must use standard names
+
+#### Entities File (entities.csv)
+
+The entities file contains your source data to be mapped to LGD codes.
+
+##### Minimum Required Structure (3-level)
+
+```csv
+district,block,village
+Khordha,Bhubaneswar,Patia
+Cuttack,Cuttack Sadar,Bidanasi
+Puri,Puri Sadar,Penthakata
+```
+
+**Required columns:**
+- `district`: District name (string)
+- `block`: Block name (string)
+- `village`: Village name (string)
+
+##### 5-Level Structure (with State)
+
+```csv
+state,state_code,district,district_code,block,block_code,gp,gp_code,village,village_code
+Odisha,21,Khordha,362,Bhubaneswar,3621,Patia GP,36211,Patia,362101
+Odisha,21,Cuttack,363,Cuttack Sadar,3631,Bidanasi GP,36311,Bidanasi,363101
+West Bengal,19,Kolkata,341,Kolkata,3411,Park Street GP,34111,Park Street,341101
+```
+
+**Additional columns:**
+- `state`: State name (string)
+- `state_code`: State code (integer, optional)
+
+##### Data Type Specifications
+
+| Column Type | Data Type | Format | Example |
+|-------------|-----------|--------|---------|
+| Name columns | String | UTF-8 text | `Khordha`, `Bhubaneswar` |
+| Code columns | Integer | Numeric only | `362`, `3621`, `362101` |
+
+**Important:**
+- Code columns should contain integers only (no decimals, no text)
+- Name columns should be UTF-8 encoded for special characters
+- Avoid leading/trailing spaces in names
+- Empty values should be truly empty, not "NA" or "NULL"
+
+##### File Format Requirements
+
+- **Format**: CSV (Comma-Separated Values)
+- **Encoding**: UTF-8 (recommended) or ASCII
+- **Line endings**: Unix (LF) or Windows (CRLF) - both supported
+- **Header row**: Required (first row must contain column names)
+- **Delimiter**: Comma (`,`)
+- **Quote character**: Double quote (`"`) for values containing commas
+
+#### LGD Codes File (codes.csv)
+
+The LGD codes file contains the reference data with official LGD codes.
+
+##### Minimum Required Structure (3-level)
+
+```csv
+district_code,district,block_code,block,village_code,village
+362,Khordha,3621,Bhubaneswar,362101,Patia
+363,Cuttack,3631,Cuttack Sadar,363101,Bidanasi
+364,Puri,3641,Puri Sadar,364101,Penthakata
+```
+
+**Required columns:**
+- `district_code`: LGD district code (integer)
+- `district`: District name (string)
+- `block_code`: LGD block code (integer)
+- `block`: Block name (string)
+- `village_code`: LGD village code (integer)
+- `village`: Village name (string)
+
+##### 5-Level Structure (with State)
+
+```csv
+state_code,state,district_code,district,block_code,block,gp_code,gp,village_code,village
+21,Odisha,362,Khordha,3621,Bhubaneswar,36211,Patia GP,362101,Patia
+21,Odisha,363,Cuttack,3631,Cuttack Sadar,36311,Bidanasi GP,363101,Bidanasi
+19,West Bengal,341,Kolkata,3411,Kolkata,34111,Park Street GP,341101,Park Street
+```
+
+**Additional columns:**
+- `state_code`: State code (integer)
+- `state`: State name (string)
+
+##### File Format Requirements
+
+Same as entities file:
+- **Format**: CSV
+- **Encoding**: UTF-8
+- **Header row**: Required
+- **All code columns**: Must be present and contain valid integers
+
+#### Common File Preparation Issues
+
+##### Issue: Column Name Mismatches
+
+**Problem:**
+```csv
+District,Block Name,Village Name
+Khordha,Bhubaneswar,Patia
+```
+
+**Solution:**
+```csv
+district,block,village
+Khordha,Bhubaneswar,Patia
+```
+
+##### Issue: Extra Spaces in Column Names
+
+**Problem:**
+```csv
+district ,block, village
+Khordha,Bhubaneswar,Patia
+```
+
+**Solution:**
+```csv
+district,block,village
+Khordha,Bhubaneswar,Patia
+```
+
+##### Issue: Code Columns as Text
+
+**Problem:**
+```csv
+district,district_code,block,village
+Khordha,"362",Bhubaneswar,Patia
+```
+
+**Solution:**
+```csv
+district,district_code,block,village
+Khordha,362,Bhubaneswar,Patia
+```
+
+##### Issue: Missing Header Row
+
+**Problem:**
+```csv
+Khordha,Bhubaneswar,Patia
+Cuttack,Cuttack Sadar,Bidanasi
+```
+
+**Solution:**
+```csv
+district,block,village
+Khordha,Bhubaneswar,Patia
+Cuttack,Cuttack Sadar,Bidanasi
+```
 
 ### Configuration Options
 
@@ -463,20 +614,6 @@ python main.py \
   --output ./results
 ```
 
-**Input example (entities_3level.csv):**
-```csv
-district,block,village
-Khordha,Bhubaneswar,Patia
-Cuttack,Cuttack Sadar,Bidanasi
-```
-
-**Expected output:**
-- 3-level UIDs: `362_3621_362101`
-- Standard matching process
-- Backward compatible with legacy systems
-
----
-
 **Workflow 2: 4-level mapping with GP**
 
 Use this when your data includes Gram Panchayat information.
@@ -488,20 +625,6 @@ python main.py \
   --output ./results \
   --gp-fuzzy-threshold 90
 ```
-
-**Input example (entities_4level.csv):**
-```csv
-district,block,gp,village
-Khordha,Bhubaneswar,Patia GP,Patia
-Khordha,Bhubaneswar,Sundarpada GP,Sundarpada
-```
-
-**Expected output:**
-- 4-level UIDs: `362_3621_36211_362101`
-- Improved matching accuracy with GP context
-- GP code mapping if codes not provided
-
----
 
 **Workflow 3: Full 5-level hierarchical mapping**
 
@@ -515,21 +638,6 @@ python main.py \
   --enable-state-code-mapping \
   --state-fuzzy-threshold 85
 ```
-
-**Input example (entities_5level.csv):**
-```csv
-state,district,block,gp,village
-Odisha,Khordha,Bhubaneswar,Patia GP,Patia
-Odisha,Cuttack,Cuttack Sadar,Bidanasi GP,Bidanasi
-West Bengal,Kolkata,Kolkata,Park Street GP,Park Street
-```
-
-**Expected output:**
-- 5-level UIDs: `21_362_3621_36211_362101`
-- State-level scoping for multi-state datasets
-- Highest matching accuracy with full hierarchy
-
----
 
 **Workflow 4: Custom hierarchy with adjusted thresholds**
 
@@ -600,96 +708,6 @@ python main.py \
 - Fails fast on inconsistencies
 - Useful for data quality auditing
 
-### District Code Mapping
-
-The application includes an intelligent district code mapping feature that automatically enriches entity records with district codes before matching begins. This significantly improves match rates, especially when input data lacks district codes or has district name variations.
-
-#### How It Works
-
-The district code mapping process runs automatically during data loading and follows these steps:
-
-1. **Extraction**: Identifies unique district names from your entity data
-2. **Normalization**: Standardizes district names by:
-   - Removing parenthetical text (e.g., "Keonjhar (Kendujhar)" → "Keonjhar")
-   - Trimming whitespace
-   - Converting to lowercase for comparison
-3. **Exact Matching**: Attempts to match normalized district names against LGD reference data
-4. **Fuzzy Matching**: If exact match fails, uses fuzzy string matching to handle spelling variations
-5. **Enrichment**: Populates the `district_code` field in entity records with matched codes
-
-#### Benefits
-
-- **Improved Match Rates**: Entities without district codes can now be matched
-- **Handles Name Variations**: Automatically handles spelling differences like "Keonjhar" vs "Kendujhar"
-- **Transparent Processing**: Detailed logging shows mapping progress and statistics
-- **No Manual Intervention**: Works automatically without requiring additional mapping files
-
-#### Configuration Parameters
-
-##### enable_district_code_mapping
-
-Controls whether automatic district code mapping is enabled.
-
-- **Type**: Boolean
-- **Default**: `true`
-- **When to disable**: If your entities already have accurate district codes or you want to use manual district mapping only
-
-**Example - Disable district code mapping:**
-
-```json
-{
-  "enable_district_code_mapping": false
-}
-```
-
-Or via programmatic configuration:
-
-```python
-config = MappingConfig(
-    input_entities_file="entities.csv",
-    input_codes_file="codes.csv",
-    output_directory="./output",
-    enable_district_code_mapping=False
-)
-```
-
-##### district_fuzzy_threshold
-
-Sets the minimum similarity score (0-100) for fuzzy matching district names.
-
-- **Type**: Integer
-- **Default**: `85`
-- **Range**: 0-100
-- **Recommended**: 80-90 for most use cases
-
-**Higher values (90-95)**:
-- More strict matching
-- Fewer false positives
-- May miss valid variations
-
-**Lower values (75-85)**:
-- More lenient matching
-- Catches more variations
-- May include incorrect matches
-
-**Example - Adjust fuzzy threshold:**
-
-```json
-{
-  "district_fuzzy_threshold": 90
-}
-```
-
-Or via programmatic configuration:
-
-```python
-config = MappingConfig(
-    input_entities_file="entities.csv",
-    input_codes_file="codes.csv",
-    output_directory="./output",
-    district_fuzzy_threshold=90
-)
-```
 
 #### Understanding the Logs
 
@@ -759,270 +777,6 @@ Cuttack,,Cuttack Sadar,Bidanasi
 4. **Monitor Unmapped Districts**: Review WARNING logs to identify districts that need attention
 5. **Validate Results**: Check a sample of mapped entities to ensure accuracy
 
-### Input File Formats
-
-#### Column Naming Conventions
-
-The application uses **strict, case-sensitive column names**. Use these exact names in your CSV files:
-
-| Level | Name Column | Code Column | Required | Notes |
-|-------|-------------|-------------|----------|-------|
-| State | `state` | `state_code` | No | For multi-state datasets |
-| District | `district` | `district_code` | Yes | Core level, always required |
-| Subdistrict | `subdistrict` | `subdistrict_code` | No | Alternative to block |
-| Block | `block` | `block_code` | Yes | Core level, always required |
-| GP | `gp` | `gp_code` | No | Gram Panchayat level |
-| Village | `village` | `village_code` | Yes | Core level, always required |
-
-**Important Notes:**
-- Column names are **case-sensitive**: use lowercase (`state`, not `State` or `STATE`)
-- Use exact names: `gp` not `gram_panchayat`, `block` not `block_name`
-- Code columns are optional - the system can map them automatically
-- Name columns are required for the levels you want to include
-
-**Special Case for LGD Reference File:**
-- LGD files may use `state_name` instead of `state` (automatically handled)
-- All other columns must use standard names
-
-#### Entities File (entities.csv)
-
-The entities file contains your source data to be mapped to LGD codes.
-
-##### Minimum Required Structure (3-level)
-
-```csv
-district,block,village
-Khordha,Bhubaneswar,Patia
-Cuttack,Cuttack Sadar,Bidanasi
-Puri,Puri Sadar,Penthakata
-```
-
-**Required columns:**
-- `district`: District name (string)
-- `block`: Block name (string)
-- `village`: Village name (string)
-
-##### With Optional Codes (Recommended)
-
-```csv
-district,district_code,block,block_code,village,village_code
-Khordha,362,Bhubaneswar,3621,Patia,362101
-Cuttack,363,Cuttack Sadar,3631,Bidanasi,363101
-Puri,364,Puri Sadar,3641,Penthakata,364101
-```
-
-**Benefits of providing codes:**
-- Faster processing (skips code mapping)
-- Higher accuracy (eliminates name ambiguity)
-- Better exact matching results
-
-##### 4-Level Structure (with GP)
-
-```csv
-district,district_code,block,block_code,gp,gp_code,village,village_code
-Khordha,362,Bhubaneswar,3621,Patia GP,36211,Patia,362101
-Cuttack,363,Cuttack Sadar,3631,Bidanasi GP,36311,Bidanasi,363101
-```
-
-**Additional columns:**
-- `gp`: Gram Panchayat name (string)
-- `gp_code`: Gram Panchayat code (integer, optional)
-
-##### 5-Level Structure (with State)
-
-```csv
-state,state_code,district,district_code,block,block_code,gp,gp_code,village,village_code
-Odisha,21,Khordha,362,Bhubaneswar,3621,Patia GP,36211,Patia,362101
-Odisha,21,Cuttack,363,Cuttack Sadar,3631,Bidanasi GP,36311,Bidanasi,363101
-West Bengal,19,Kolkata,341,Kolkata,3411,Park Street GP,34111,Park Street,341101
-```
-
-**Additional columns:**
-- `state`: State name (string)
-- `state_code`: State code (integer, optional)
-
-##### Data Type Specifications
-
-| Column Type | Data Type | Format | Example |
-|-------------|-----------|--------|---------|
-| Name columns | String | UTF-8 text | `Khordha`, `Bhubaneswar` |
-| Code columns | Integer | Numeric only | `362`, `3621`, `362101` |
-
-**Important:**
-- Code columns should contain integers only (no decimals, no text)
-- Name columns should be UTF-8 encoded for special characters
-- Avoid leading/trailing spaces in names
-- Empty values should be truly empty, not "NA" or "NULL"
-
-##### File Format Requirements
-
-- **Format**: CSV (Comma-Separated Values)
-- **Encoding**: UTF-8 (recommended) or ASCII
-- **Line endings**: Unix (LF) or Windows (CRLF) - both supported
-- **Header row**: Required (first row must contain column names)
-- **Delimiter**: Comma (`,`)
-- **Quote character**: Double quote (`"`) for values containing commas
-
-#### LGD Codes File (codes.csv)
-
-The LGD codes file contains the reference data with official LGD codes.
-
-##### Minimum Required Structure (3-level)
-
-```csv
-district_code,district,block_code,block,village_code,village
-362,Khordha,3621,Bhubaneswar,362101,Patia
-363,Cuttack,3631,Cuttack Sadar,363101,Bidanasi
-364,Puri,3641,Puri Sadar,364101,Penthakata
-```
-
-**Required columns:**
-- `district_code`: LGD district code (integer)
-- `district`: District name (string)
-- `block_code`: LGD block code (integer)
-- `block`: Block name (string)
-- `village_code`: LGD village code (integer)
-- `village`: Village name (string)
-
-##### 4-Level Structure (with GP)
-
-```csv
-district_code,district,block_code,block,gp_code,gp,village_code,village
-362,Khordha,3621,Bhubaneswar,36211,Patia GP,362101,Patia
-363,Cuttack,3631,Cuttack Sadar,36311,Bidanasi GP,363101,Bidanasi
-```
-
-**Additional columns:**
-- `gp_code`: Gram Panchayat code (integer)
-- `gp`: Gram Panchayat name (string)
-
-##### 5-Level Structure (with State)
-
-```csv
-state_code,state_name,district_code,district,block_code,block,gp_code,gp,village_code,village
-21,Odisha,362,Khordha,3621,Bhubaneswar,36211,Patia GP,362101,Patia
-21,Odisha,363,Cuttack,3631,Cuttack Sadar,36311,Bidanasi GP,363101,Bidanasi
-19,West Bengal,341,Kolkata,3411,Kolkata,34111,Park Street GP,341101,Park Street
-```
-
-**Additional columns:**
-- `state_code`: State code (integer)
-- `state_name`: State name (string) - **Note:** LGD files use `state_name` not `state`
-
-**Special Note:** The LGD reference file uses `state_name` instead of `state` for the state name column. This is automatically handled by the system.
-
-##### File Format Requirements
-
-Same as entities file:
-- **Format**: CSV
-- **Encoding**: UTF-8
-- **Header row**: Required
-- **All code columns**: Must be present and contain valid integers
-
-#### Common File Preparation Issues
-
-##### Issue: Column Name Mismatches
-
-**Problem:**
-```csv
-District,Block Name,Village Name
-Khordha,Bhubaneswar,Patia
-```
-
-**Solution:**
-```csv
-district,block,village
-Khordha,Bhubaneswar,Patia
-```
-
-##### Issue: Extra Spaces in Column Names
-
-**Problem:**
-```csv
-district ,block, village
-Khordha,Bhubaneswar,Patia
-```
-
-**Solution:**
-```csv
-district,block,village
-Khordha,Bhubaneswar,Patia
-```
-
-##### Issue: Code Columns as Text
-
-**Problem:**
-```csv
-district,district_code,block,village
-Khordha,"362",Bhubaneswar,Patia
-```
-
-**Solution:**
-```csv
-district,district_code,block,village
-Khordha,362,Bhubaneswar,Patia
-```
-
-##### Issue: Missing Header Row
-
-**Problem:**
-```csv
-Khordha,Bhubaneswar,Patia
-Cuttack,Cuttack Sadar,Bidanasi
-```
-
-**Solution:**
-```csv
-district,block,village
-Khordha,Bhubaneswar,Patia
-Cuttack,Cuttack Sadar,Bidanasi
-```
-
-#### Validating Your Input Files
-
-Before processing, validate your files:
-
-```bash
-# Check column names (should match exactly)
-head -1 entities.csv
-
-# Check for extra spaces
-head -1 entities.csv | cat -A
-
-# Count records
-wc -l entities.csv
-
-# Check for encoding issues
-file -i entities.csv
-```
-
-Or use Python:
-
-```python
-import pandas as pd
-
-# Load and inspect
-df = pd.read_csv('entities.csv')
-
-# Check columns
-print("Columns:", df.columns.tolist())
-
-# Check for required columns
-required = ['district', 'block', 'village']
-missing = [col for col in required if col not in df.columns]
-if missing:
-    print(f"Missing required columns: {missing}")
-else:
-    print("All required columns present!")
-
-# Check data types
-print("\nData types:")
-print(df.dtypes)
-
-# Check for missing values
-print("\nMissing values:")
-print(df.isnull().sum())
-```
 
 ### Output Files
 
@@ -1869,56 +1623,6 @@ lgd-mapping/
 ├── requirements.txt                # Dependencies
 ├── pytest.ini                      # Test configuration
 └── README.md                       # This file
-```
-
-## Development
-
-### Setting Up Development Environment
-
-1. Clone the repository
-2. Create virtual environment:
-```bash
-python -m venv venv
-source venv/bin/activate  # On Windows: venv\Scripts\activate
-```
-
-3. Install development dependencies:
-```bash
-pip install -r requirements.txt
-```
-
-### Running Tests
-
-Run all tests:
-```bash
-pytest
-```
-
-Run with coverage:
-```bash
-pytest --cov=lgd_mapping --cov-report=html
-```
-
-Run specific test file:
-```bash
-pytest test_mapping_engine.py
-```
-
-### Code Quality
-
-Format code:
-```bash
-black lgd_mapping/
-```
-
-Lint code:
-```bash
-flake8 lgd_mapping/
-```
-
-Type checking:
-```bash
-mypy lgd_mapping/
 ```
 
 ### Contributing
